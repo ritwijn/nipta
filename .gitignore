@@ -9,3 +9,7 @@ uploads/
 .DS_Store
 nipta.db.lock
 secrets/
+trailer/out/
+trailer/node_modules
+trailer/.cache/
+trailer/.remotion/

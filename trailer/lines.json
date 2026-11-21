@@ -1,0 +1,97 @@
+{
+  "speaker": "kavitha",
+  "pace": 1.1,
+  "lines": [
+    {
+      "id": "hello",
+      "part": "intro",
+      "text": "I'm Lakshmi. My husband Raghu and I run a hardware shop in Coimbatore. Every Friday, we pay our suppliers."
+    },
+    {
+      "id": "mess",
+      "part": "intro",
+      "text": "The bills come in Tamil, Hindi and English, some written by hand. Last month, one bill had a new bank account on it. It wasn't our supplier's."
+    },
+    {
+      "id": "show",
+      "part": "intro",
+      "text": "So now we use Nipta. Let me show you a Friday."
+    },
+    {
+      "id": "bring",
+      "part": "app",
+      "step": 0,
+      "say": "Sign in, add the bills",
+      "text": "I sign in and add this week's bills. Nipta reads each one, and checks it six ways before any money moves."
+    },
+    {
+      "id": "today",
+      "part": "app",
+      "step": 0,
+      "say": "One list for today",
+      "text": "Then it gives me one list for today. What to pay, what to check, and what it won't pay."
+    },
+    {
+      "id": "sums",
+      "part": "app",
+      "step": 1,
+      "say": "Totals don't add up: blocked",
+      "text": "Tamil Tools wrote four thousand five hundred. But the items only add up to four thousand three hundred. Nipta stops it, and shows me both numbers."
+    },
+    {
+      "id": "bank",
+      "part": "app",
+      "step": 1,
+      "say": "New bank account: blocked",
+      "text": "This is the old trick. Eastern Hardware printed a new bank account on the bill. Nipta only pays the account I saved myself, and there is no button to pay it anyway."
+    },
+    {
+      "id": "twice",
+      "part": "app",
+      "step": 1,
+      "say": "Same bill twice: put aside",
+      "text": "Kaveri Fasteners sent the same bill twice, with a new number and date. Nipta matches the items, and puts it aside for me."
+    },
+    {
+      "id": "ask",
+      "part": "app",
+      "step": 2,
+      "say": "Ask in your own language",
+      "text": "I can ask in Kannada, Hindi or English. Which bills are fine? It answers in my language. And asking never pays anything."
+    },
+    {
+      "id": "card",
+      "part": "app",
+      "step": 3,
+      "say": "Exact amount, saved account",
+      "text": "Coimbatore Packing is clean, and due first. I open the payment. It shows the exact amount, and my saved account."
+    },
+    {
+      "id": "pay",
+      "part": "app",
+      "step": 4,
+      "say": "Approve, then it sends once",
+      "text": "I approve three thousand two hundred rupees. Only then can it go out through Cashfree. Today is a practice run, so no real money moves. Press twice, it still pays once, and it shows the real status."
+    },
+    {
+      "id": "log",
+      "part": "app",
+      "step": 5,
+      "say": "Every step written down",
+      "text": "Every step is written down. Which bill, which check, who approved it, and what the bank said."
+    },
+    {
+      "id": "close",
+      "part": "outro",
+      "text": "The right bill, to the right person, for the right amount. That's Nipta."
+    }
+  ],
+  "steps": [
+    "Bring the bills",
+    "Six checks",
+    "Ask",
+    "Check the payment",
+    "Approve & send",
+    "Keep a record"
+  ]
+}
