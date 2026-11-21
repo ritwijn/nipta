@@ -47,6 +47,8 @@ INVOICE_SCHEMA = {"type": "object", "properties": {
     "notes": _text("Any other printed note."),
 }}
 TERMINAL = {"completed", "partially_completed", "failed", "rejected"}
+# Identifiers where a number would silently drop leading zeros (e.g. account 001234567890 -> 1234567890).
+IDENTIFIER_FIELDS = ("bank_account", "ifsc", "invoice_number")
 JOB_TIMEOUT_S = 90
 
 
@@ -101,7 +103,13 @@ def extract_invoice_live(path: Path, mime: str) -> ExtractionRaw:
             if status != "completed":
                 raise ExtractionFailed(f"job {job_id} ended {status}")
             body = c.get(f"/doc-ai/v1/job/{job_id}/results", headers=h).raise_for_status().json()
-        result = _str_leaves(body.get("result") or {})
+        result = body.get("result") or {}
+        numeric_ids = [f for f in IDENTIFIER_FIELDS
+                       if isinstance(result.get(f), (int, float)) and not isinstance(result.get(f), bool)]
+        if numeric_ids:
+            raise ExtractionFailed(f"job {job_id} returned {', '.join(numeric_ids)} as a number; "
+                                   "leading zeros may be lost")
+        result = _str_leaves(result)
         conf: dict[str, float] = {}
         _confidence(result, body.get("annotations") or {}, "", conf)
         return ExtractionRaw.model_validate({**result, "field_confidence": conf})

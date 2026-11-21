@@ -46,3 +46,25 @@ def test_non_completed_job_is_unreadable(tmp_path, status):
     doc.write_bytes(b"%PDF")
     with pytest.raises(sarvam.ExtractionFailed):
         sarvam.extract_invoice_live(doc, "application/pdf")
+
+
+@pytest.mark.parametrize("field", ["bank_account", "ifsc", "invoice_number"])
+def test_numeric_identifier_is_unreadable(tmp_path, field):
+    # A number would drop leading zeros (account 001234567890 -> 1234567890), so refuse it.
+    _mock("completed", {"status": "completed", "result": {"vendor_name": "Kaveri", field: 1234567890},
+                        "annotations": {field: {"confidence": 0.99}}})
+    doc = tmp_path / "inv.png"
+    doc.write_bytes(b"png")
+    with pytest.raises(sarvam.ExtractionFailed, match="as a number"):
+        sarvam.extract_invoice_live(doc, "image/png")
+
+
+def test_job_that_never_finishes_times_out(tmp_path, monkeypatch):
+    _mock("processing")
+    clock = iter(range(0, 1000, 30))  # each check advances 30 s
+    monkeypatch.setattr(sarvam.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(sarvam.time, "sleep", lambda _s: None)
+    doc = tmp_path / "inv.pdf"
+    doc.write_bytes(b"%PDF")
+    with pytest.raises(sarvam.ExtractionFailed, match="still processing"):
+        sarvam.extract_invoice_live(doc, "application/pdf")

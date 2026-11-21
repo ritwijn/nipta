@@ -79,7 +79,7 @@ nipta/
     └── curveballs/                   # test-only adversarial set
 ```
 
-**Dependencies (`requirements.txt`):** `fastapi`, `uvicorn[standard]`, `pydantic>=2`, `httpx`, `python-multipart`, `pypdfium2`, `cryptography` (for the 2FA signature), `python-dotenv`, `pytest`.
+**Dependencies (`requirements.txt`):** `fastapi`, `uvicorn[standard]`, `pydantic>=2`, `httpx`, `python-multipart`, `cryptography` (for the 2FA signature), `python-dotenv`, `pytest`.
 
 The UI is a single no-build page served by FastAPI. This is the architecture's deliberate change from the PRD's Vite + React, made to avoid toolchain failures on venue Wi-Fi.
 
@@ -300,12 +300,14 @@ def extract_invoice(document_path: Path, mime: str) -> tuple[ExtractionRaw, str]
     # returns (raw, source) where source ∈ {"LIVE_SARVAM_VISION", "PRE_EXTRACTED_FIXTURE"}
 ```
 
-- PDFs are rendered to PNG pages with `pypdfium2` first.
-- Call `POST https://api.sarvam.ai/v2/chat/completions` with header `api-subscription-key`, the confirmed image-capable model, and `response_format` set to the extraction schema. Confirm the image content-part shape at the gate.
-- Ask for **raw strings only**. The prompt puts document text inside a delimited, untrusted data block and tells the model not to calculate anything.
+- Submit the original file (PDF, PNG or JPEG) to Sarvam's Document AI extract job: `POST https://api.sarvam.ai/doc-ai/v1/job/extract` (multipart, header `api-subscription-key`) with `schema` (the JSON schema in `sarvam.INVOICE_SCHEMA`) and `language` (`SARVAM_VISION_LANGUAGE`). Poll `/doc-ai/v1/job/{job_id}/status` until it is terminal (90 s limit), then read `/doc-ai/v1/job/{job_id}/results`.
+- Only `completed` is accepted. `partially_completed`, `failed`, `rejected` or a timeout become `DOCUMENT_UNREADABLE`. Sarvam caps extract at 20 pages per PDF, so longer PDFs are rejected and land here too.
+- The schema asks for **raw strings only** and tells the job not to calculate anything. Invoice text is data, never instructions.
+- Per-field confidence comes from `annotations`. A value with no confidence gets 0.0, so it is treated as uncertain.
+- If `bank_account`, `ifsc` or `invoice_number` comes back as a number (leading zeros may be lost), the document is `DOCUMENT_UNREADABLE`. Other numbers are converted to strings.
 - Validate the response with `ExtractionRaw`. If validation fails, record a `DOCUMENT_UNREADABLE` finding instead of retrying with looser parsing.
 - When vision is disabled, load `fixtures/extracted/<name>.json` and label it `PRE_EXTRACTED_FIXTURE`.
-- Use `httpx` with bounded timeouts (for example, connect 5 s, read 30 s).
+- Use `httpx` with bounded timeouts (connect 5 s, read 30 s per request).
 
 ### 5.6 Ingestion
 
