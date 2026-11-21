@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" width="880" height="330" role="img" aria-labelledby="ttl dsc">
+<title id="ttl">How Nipta works</title>
+<desc id="dsc">Pipeline: bills in Kannada, Hindi or English are read by Sarvam Document AI, deterministic rules decide in integer paise, the owner approves an exact snapshot with one click, and Cashfree Payouts V2 sends it once. Voice questions never pay; a changed bank account is blocked and Relay can call the vendor's registered number.</desc>
+<defs>
+  <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F9F1DC"/><stop offset="1" stop-color="#E6D7B0"/></linearGradient>
+  <linearGradient id="sunk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E2D2A9"/><stop offset="1" stop-color="#F4EBD2"/></linearGradient>
+  <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2A8C66"/><stop offset="1" stop-color="#1E7656"/></linearGradient>
+  <filter id="raise" x="-10%" y="-20%" width="120%" height="150%">
+    <feDropShadow dx="-4" dy="-4" stdDeviation="5" flood-color="#FFFCF0" flood-opacity="0.95"/>
+    <feDropShadow dx="5" dy="6" stdDeviation="7" flood-color="#8A6C38" flood-opacity="0.34"/>
+  </filter>
+  <filter id="key" x="-10%" y="-30%" width="120%" height="170%">
+    <feDropShadow dx="-2" dy="-2" stdDeviation="3" flood-color="#FFFCF0" flood-opacity="0.95"/>
+    <feDropShadow dx="3" dy="3" stdDeviation="4" flood-color="#8A6C38" flood-opacity="0.27"/>
+  </filter>
+  <filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2.4"/></filter>
+</defs>
+<style>
+text { font-family: Manrope, 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans Kannada', 'Noto Sans Devanagari', sans-serif; fill: #2A2217; }
+.lbl { font-family: 'Chakra Petch', 'Segoe UI', Arial, sans-serif; font-weight: 700; letter-spacing: 0.14em; font-size: 10.5px; fill: #4A3F2E; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; }
+.muted { fill: #6A5C44; }
+@keyframes n0 { 0%, 2.0% { opacity: 0; transform: translate(0px, 8px); } 5.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.n0 { animation: n0 12s ease-out infinite; }
+@keyframes n1 { 0%, 8.0% { opacity: 0; transform: translate(0px, 8px); } 11.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.n1 { animation: n1 12s ease-out infinite; }
+@keyframes n2 { 0%, 14.0% { opacity: 0; transform: translate(0px, 8px); } 17.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.n2 { animation: n2 12s ease-out infinite; }
+@keyframes n3 { 0%, 20.0% { opacity: 0; transform: translate(0px, 8px); } 23.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.n3 { animation: n3 12s ease-out infinite; }
+@keyframes n4 { 0%, 26.0% { opacity: 0; transform: translate(0px, 8px); } 29.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.n4 { animation: n4 12s ease-out infinite; }
+@keyframes s1 { 0%, 34.0% { opacity: 0; } 37.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.s1 { animation: s1 12s ease-out infinite; }
+@keyframes s2 { 0%, 40.0% { opacity: 0; } 43.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.s2 { animation: s2 12s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; }
+  .a { opacity: 1 !important; transform: none !important; }
+  .gone { opacity: 0 !important; }
+}
+</style>
+<rect width="880" height="330" rx="28" fill="#F1E6C8"/>
+<path d="M38 92 v-10 h303 v10" fill="none" stroke="#34449F" stroke-width="1.6" opacity="0.7"/><text x="189.5" y="72" text-anchor="middle" class="lbl" style="fill:#34449F">MODEL READS</text>
+<path d="M372 92 v-10 h136 v10" fill="none" stroke="#4A3F2E" stroke-width="1.6" opacity="0.7"/><text x="440.0" y="72" text-anchor="middle" class="lbl" style="fill:#4A3F2E">CODE DECIDES</text>
+<path d="M539 92 v-10 h136 v10" fill="none" stroke="#1E7656" stroke-width="1.6" opacity="0.7"/><text x="607.0" y="72" text-anchor="middle" class="lbl" style="fill:#1E7656">PERSON AUTHORIZES</text>
+<path d="M706 92 v-10 h136 v10" fill="none" stroke="#8A5A08" stroke-width="1.6" opacity="0.7"/><text x="774.0" y="72" text-anchor="middle" class="lbl" style="fill:#8A5A08">MONEY MOVES ONCE</text>
+<path d="M106.0 172 H774.0" stroke="#D9C9A0" stroke-width="3" stroke-dasharray="2 7" stroke-linecap="round" fill="none"/>
+<g class="a n0"><rect x="32" y="112" width="148" height="120" rx="20" fill="url(#card)" filter="url(#raise)"/><circle cx="58" cy="140" r="13" fill="url(#sunk)"/><text x="58" y="144" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px;fill:#1E7656">1</text><text x="78" y="145" style="font-weight:800;font-size:13.5px">Bills in</text><text x="48" y="180" class="muted" style="font-size:11px;font-weight:600">Photos, PDFs, scans</text><text x="48" y="197" class="muted" style="font-size:11px;font-weight:600">ಕನ್ನಡ · हिन्दी</text><text x="48" y="214" class="muted" style="font-size:11px;font-weight:600">English</text></g>
+<g class="a n1"><rect x="199" y="112" width="148" height="120" rx="20" fill="url(#card)" filter="url(#raise)"/><circle cx="225" cy="140" r="13" fill="url(#sunk)"/><text x="225" y="144" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px;fill:#1E7656">2</text><text x="245" y="145" style="font-weight:800;font-size:13.5px">Sarvam reads</text><text x="215" y="180" class="muted" style="font-size:11px;font-weight:600">Document AI job</text><text x="215" y="197" class="muted" style="font-size:11px;font-weight:600">raw text + confidence</text><text x="215" y="214" class="muted" style="font-size:11px;font-weight:600">never does the maths</text></g>
+<g class="a n2"><rect x="366" y="112" width="148" height="120" rx="20" fill="url(#card)" filter="url(#raise)"/><circle cx="392" cy="140" r="13" fill="url(#sunk)"/><text x="392" y="144" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px;fill:#1E7656">3</text><text x="412" y="145" style="font-weight:800;font-size:13.5px">Rules decide</text><text x="382" y="180" class="muted" style="font-size:11px;font-weight:600">integer paise</text><text x="382" y="197" class="muted" style="font-size:11px;font-weight:600">unsure → review</text><text x="382" y="214" class="muted" style="font-size:11px;font-weight:600">never a guess</text></g>
+<g class="a n3"><rect x="533" y="112" width="148" height="120" rx="20" fill="url(#card)" filter="url(#raise)"/><circle cx="559" cy="140" r="13" fill="url(#sunk)"/><text x="559" y="144" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px;fill:#1E7656">4</text><text x="579" y="145" style="font-weight:800;font-size:13.5px">You approve</text><text x="549" y="180" class="muted" style="font-size:11px;font-weight:600">one click on the</text><text x="549" y="197" class="muted" style="font-size:11px;font-weight:600">exact snapshot</text><text x="549" y="214" class="muted" style="font-size:11px;font-weight:600">voice can't approve</text></g>
+<g class="a n4"><rect x="700" y="112" width="148" height="120" rx="20" fill="url(#card)" filter="url(#raise)"/><circle cx="726" cy="140" r="13" fill="url(#sunk)"/><text x="726" y="144" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px;fill:#1E7656">5</text><text x="746" y="145" style="font-weight:800;font-size:13.5px">Cashfree pays</text><text x="716" y="180" class="muted" style="font-size:11px;font-weight:600">Payouts V2</text><text x="716" y="197" class="muted" style="font-size:11px;font-weight:600">one transfer ID</text><text x="716" y="214" class="muted" style="font-size:11px;font-weight:600">settled on COMPLETED</text></g>
+<g><circle r="7" fill="#3CCB8E" filter="url(#glow)" opacity="0.8"/><circle r="5" fill="#3CCB8E"/><animateMotion dur="6.0s" repeatCount="indefinite" path="M106.0 240 H774.0"/></g>
+<g class="a s1"><rect x="32" y="262" width="400" height="44" rx="14" fill="url(#sunk)"/><text x="50" y="281" style="font-weight:800;font-size:12.5px">Ask by voice or text · asking never pays</text><text x="50" y="297" class="muted" style="font-size:11.5px;font-weight:600">Saaras listens, Bulbul answers, in ಕನ್ನಡ / हिन्दी / English.</text></g>
+<g class="a s2"><rect x="448" y="262" width="400" height="44" rx="14" fill="url(#sunk)"/><text x="466" y="281" style="font-weight:800;font-size:12.5px">Bank account changed?</text><text x="466" y="297" class="muted" style="font-size:11.5px;font-weight:600">Blocked. Relay can call the vendor on the number on file.</text></g>
+<text x="32" y="40" class="lbl">HOW A BILL BECOMES A PAYMENT</text>
+</svg>
