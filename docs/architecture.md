@@ -1,9 +1,18 @@
 # Nipta Architecture
 
 **Version:** 2.1 (adds dispatch-start crash recovery, a concurrent-proposal race test, an agent activity stream, an agent call cap and an already-paid duplicate check)
-**Scope:** Solo buildathon implementation of PRD v4.0 ("Pay the right bill, to the right person")
+**Scope:** Solo buildathon implementation of PRD v4.1 ("Pay the right bill, to the right person")
 **Date:** 21 November 2026
 **Status:** Build reference. Cashfree and Sarvam contracts below were read from the official documentation on 21 November 2026. Whether each product is enabled for the event account is still an open check (section 11).
+
+
+## PRD v4.1 additions
+
+PRD v4.1 adds no new money rules. Duplicate handling, eligibility and payment safety are unchanged; section 5.2 here remains the reference for PRD §4 duplicate precedence. This design additionally supports:
+
+- **Approval card in the operator's language.** The card is built from the frozen proposal snapshot using the existing response templates for `ta-IN`, `hi-IN` and `en-IN`. `amount_words` is produced from `amount_paise` by a deterministic function, not by the model. Approval is still only the authenticated click bound to the snapshot hash.
+- **Batch scorecard.** `GET /api/batches/{id}` also returns a `summary` object: counts by decision (`ELIGIBLE`, `REVIEW`, `BLOCKED`) and by finding code. It is computed from stored findings and adds no rule.
+- **Acceptance tests T23–T28** from PRD §13, alongside T01–T22.
 
 ## 1. Design principles
 
