@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nipta</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">N</span>
+      <div>
+        <h1>Nipta</h1>
+        <p class="tagline">Pay the right bill, to the right person</p>
+      </div>
+    </div>
+    <div id="capabilities" class="caps" aria-label="Provider status"></div>
+    <div class="session">
+      <select id="lang" aria-label="Explanation language">
+        <option value="en">English</option>
+        <option value="ta">தமிழ்</option>
+        <option value="hi">हिन्दी</option>
+      </select>
+      <form id="login" class="login">
+        <input id="pin" type="password" inputmode="numeric" placeholder="Operator PIN" autocomplete="off" aria-label="Operator PIN">
+        <button type="submit">Sign in</button>
+      </form>
+      <span id="who" class="who" hidden></span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="col-main">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Invoice batch</h2>
+          <div class="actions">
+            <select id="batchSelect" aria-label="Batch"></select>
+            <button id="loadFixtures" class="secondary" data-auth>Load demo batch</button>
+            <label class="file-btn secondary" data-auth>
+              Upload bills<input id="upload" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" hidden>
+            </label>
+            <button id="processBatch" data-auth>Run checks</button>
+          </div>
+        </div>
+        <div id="batchSummary" class="summary"></div>
+        <div class="table-wrap">
+          <table id="invoiceTable">
+            <thead>
+              <tr><th>Invoice</th><th>Vendor</th><th>No.</th><th class="num">Amount</th><th>Decision</th><th>Payment</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="detail" class="panel" hidden></div>
+      <div id="approval" class="panel approval" hidden></div>
+    </section>
+
+    <aside class="col-side">
+      <div class="panel">
+        <div class="panel-head"><h2>Ask Nipta</h2></div>
+        <form id="agentForm" class="agent-form">
+          <input id="agentText" placeholder="e.g. Why is INV-C on hold?  /  இதை செலுத்து" aria-label="Question">
+          <button type="submit" data-auth>Ask</button>
+        </form>
+        <div id="agentReply" class="agent-reply"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Payment plan</h2>
+          <form id="planForm" class="plan-form">
+            <label>Budget ₹ <input id="budget" type="number" min="0" step="100" value="9000"></label>
+            <button type="submit" class="secondary">Rank</button>
+          </form>
+        </div>
+        <div id="plan"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Activity</h2><button id="refreshAudit" class="link">Refresh</button></div>
+        <ol id="activity" class="activity"></ol>
+      </div>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "_fixture_invoice_id": "INV-F",
+  "language": "en-IN",
+  "vendor_name": "Sri Murugan Traders",
+  "invoice_number": "SMT-77",
+  "invoice_date": "14/11/2026",
+  "due_date": "29/11/2026",
+  "line_items": [
+    {
+      "description": "Nylon cable ties 200 mm",
+      "quantity": "250",
+      "unit_price": "₹11.00",
+      "line_total": "₹2,750.00"
+    }
+  ],
+  "subtotal": "₹2,750.00",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "stated_total": "₹2,750.00",
+  "amount_in_words": "Rupees Two Thousand Seven Hundred Fifty Only",
+  "bank_account": "77700011122233",
+  "ifsc": "UTIB0005678",
+  "notes": null,
+  "field_confidence": {
+    "stated_total": 0.96
+  }
+}

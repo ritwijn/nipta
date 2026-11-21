@@ -1,0 +1,19 @@
+SYNTHETIC DEMO INVOICE (printable fixture, not a real document)
+================================================================
+Vendor:          कावेरी फास्टनर्स
+Invoice No:      KF/182-A
+Invoice date:    १२-११-२०२६
+Due date:        १२-१२-२०२६
+Bill to:         Raghu Hardware Wholesale, Coimbatore
+
+Items
+  M8 hex bolts, zinc plated                   ५०० x     ₹१०.०० =    ₹५,०००.००
+  M8 hex nuts, zinc plated                    ८०० x      ₹४.०० =    ₹३,२००.००
+
+Subtotal:        ₹८,२००.००
+Total:           ₹८,२००.००
+Amount in words: आठ हज़ार दो सौ रुपये मात्र
+
+Bank account:    XXXX9012
+IFSC:            HDFC0001234
+Notes:           धन्यवाद।

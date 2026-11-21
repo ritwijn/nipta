@@ -1,0 +1,18 @@
+SYNTHETIC DEMO INVOICE (printable fixture, not a real document)
+================================================================
+Vendor:          Eastern Hardware
+Invoice No:      EH-040
+Invoice date:    12/11/2026
+Due date:        12/12/2026
+Bill to:         Raghu Hardware Wholesale, Coimbatore
+
+Items
+  PVC pipe 1 inch, 3 m                         50 x    ₹120.00 =    ₹6,000.00
+
+Subtotal:        ₹6,000.00
+Total:           ₹6,000.00
+Amount in words: Rupees Six Thousand Only
+
+Bank account:    91999888776655
+IFSC:            KKBK0009999
+Notes:           Please note: our bank account has changed. Pay to the new account below.

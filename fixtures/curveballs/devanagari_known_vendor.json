@@ -1,0 +1,24 @@
+{
+  "language": "hi-IN",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "notes": null,
+  "bank_account": null,
+  "ifsc": null,
+  "field_confidence": {},
+  "vendor_name": "तमिल टूल्स",
+  "invoice_number": "TT-102",
+  "invoice_date": "18/11/2026",
+  "due_date": "03/12/2026",
+  "line_items": [
+    {
+      "description": "रिंच सेट (wrench set)",
+      "quantity": "4",
+      "unit_price": "₹650.00",
+      "line_total": "₹2,600.00"
+    }
+  ],
+  "subtotal": null,
+  "stated_total": "₹2,600.00",
+  "amount_in_words": "दो हज़ार छह सौ रुपये मात्र"
+}

@@ -1,0 +1,35 @@
+{
+  "_fixture_invoice_id": "INV-A",
+  "language": "en-IN",
+  "vendor_name": "Kaveri Fasteners",
+  "invoice_number": "KF-182",
+  "invoice_date": "10/11/2026",
+  "due_date": "10/12/2026",
+  "line_items": [
+    {
+      "description": "M8 hex bolts, zinc plated",
+      "quantity": "500",
+      "unit_price": "₹10.00",
+      "line_total": "₹5,000.00"
+    },
+    {
+      "description": "M8 hex nuts, zinc plated",
+      "quantity": "800",
+      "unit_price": "₹4.00",
+      "line_total": "₹3,200.00"
+    }
+  ],
+  "subtotal": "₹8,200.00",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "stated_total": "₹8,200.00",
+  "amount_in_words": "Rupees Eight Thousand Two Hundred Only",
+  "bank_account": "XXXXXXXXXX9012",
+  "ifsc": "HDFC0001234",
+  "notes": "Thank you for your business.",
+  "field_confidence": {
+    "stated_total": 0.98,
+    "subtotal": 0.97,
+    "bank_account": 0.95
+  }
+}

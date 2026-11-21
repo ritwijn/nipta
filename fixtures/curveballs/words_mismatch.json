@@ -1,0 +1,24 @@
+{
+  "language": "en-IN",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "notes": null,
+  "bank_account": null,
+  "ifsc": null,
+  "field_confidence": {},
+  "vendor_name": "Coimbatore Packing",
+  "invoice_number": "CP-310",
+  "invoice_date": "18/11/2026",
+  "due_date": "03/12/2026",
+  "line_items": [
+    {
+      "description": "Stretch film roll",
+      "quantity": "20",
+      "unit_price": "₹245.00",
+      "line_total": "₹4,900.00"
+    }
+  ],
+  "subtotal": "₹4,900.00",
+  "stated_total": "₹4,900.00",
+  "amount_in_words": "Rupees Nine Thousand Four Hundred Only"
+}

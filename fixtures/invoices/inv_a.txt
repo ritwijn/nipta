@@ -1,0 +1,19 @@
+SYNTHETIC DEMO INVOICE (printable fixture, not a real document)
+================================================================
+Vendor:          Kaveri Fasteners
+Invoice No:      KF-182
+Invoice date:    10/11/2026
+Due date:        10/12/2026
+Bill to:         Raghu Hardware Wholesale, Coimbatore
+
+Items
+  M8 hex bolts, zinc plated                   500 x     ₹10.00 =    ₹5,000.00
+  M8 hex nuts, zinc plated                    800 x      ₹4.00 =    ₹3,200.00
+
+Subtotal:        ₹8,200.00
+Total:           ₹8,200.00
+Amount in words: Rupees Eight Thousand Two Hundred Only
+
+Bank account:    XXXXXXXXXX9012
+IFSC:            HDFC0001234
+Notes:           Thank you for your business.

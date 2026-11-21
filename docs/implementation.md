@@ -928,18 +928,72 @@ One manual test runs a real sandbox payout once credentials are confirmed. Recor
 
 ---
 
-## 13. Running
+## 13. Runtime and deployment
+
+This implements architecture §14. It is one process on one machine, with no build step and no extra services.
+
+### 13.1 Setup
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env              # fill in what the integration gate confirmed
-python -m backend.seed            # create DB, seed vendors, beneficiaries, fixture batch
-uvicorn backend.app:app --port 8000
+cp .env.example .env              # fill in only what the integration gate (§4) confirmed
+python -m backend.seed --reset    # optional: fresh DB with vendors, beneficiaries, fixture batch
+```
+
+`python -m backend.seed` prints the fixture batch and each invoice's decision. Use it as a quick check before going on stage. `--reset` deletes the database (including its `-wal` and `-shm` files) first, and `--no-process` loads the batch without running checks.
+
+### 13.2 One process serves API and UI
+
+```bash
+./run.sh            # = uvicorn backend.app:app --host 127.0.0.1 --port 8000 --workers 1 (no reload)
+./run.sh --reset    # reset to the fixture batch, then start
+./run.sh --check    # print fixture decisions and provider status, then exit
+```
+
+- FastAPI serves `/api/*` and mounts `static/` at `/`, so `http://localhost:8000` is the whole app.
+- **Bootstrap on startup** (`app._bootstrap`): create the schema if missing, seed the registry and fixture batch if the vendors table is empty, then run `status.recover_all()`. Recovery reconciles every `CASHFREE_SANDBOX` attempt left in `REQUEST_RESERVED`, `INITIATED`, `PENDING` or `UNKNOWN` (the §9.3 recovery table, with startup treating any started dispatch as interrupted).
+- Run a **single worker**. SQLite `BEGIN IMMEDIATE` and the unique indexes protect concurrent requests inside this process. This is enforced: on startup, `runtime_lock.acquire()` takes an exclusive OS lock on `<database>.lock`. A second worker or a second copy pointed at the same database exits with "Another Nipta process is already using …".
+- Don't use `--reload` during the demo. A reload in the middle of a dispatch is exactly the crash window §9.3 recovers from, and there's no reason to trigger it on stage.
+
+### 13.3 Configuration
+
+- `.env` holds the flags and credentials. It is git-ignored and loaded by `config.py` through `python-dotenv`.
+- `.env.example` documents every variable (§4) and is committed. Every provider defaults to **off**.
+- `GET /api/health` and the header badges in the UI show which providers are `LIVE`, `MISCONFIGURED` (enabled but missing credentials) or off with their fallback. Check this before every demo run.
+- Change `NIPTA_OPERATOR_PIN` and set a long random `NIPTA_SESSION_SECRET` before any shared demo.
+- `NIPTA_TEST_MODE=true` enables `/api/dev/provider-event` and the labelled `TEST_PROVIDER` mode (§15). Keep it `false` for any run that uses real sandbox payouts.
+
+### 13.4 Webhooks at the venue
+
+Cashfree can only deliver webhooks to a public URL. Expose the local server through a tunnel:
+
+```bash
+cloudflared tunnel --url http://localhost:8000
+# then register https://<tunnel-host>/api/webhooks/cashfree in the Cashfree Payouts dashboard
+# and copy the webhook secret into CASHFREE_WEBHOOK_SECRET
+```
+
+- Without a tunnel, or without `CASHFREE_WEBHOOK_SECRET`, **status polling is the source of truth**. The UI polls `GET /api/proposals/{id}/status` every 4 s while an attempt is non-terminal, and each poll reconciles with `GET /payout/transfers`.
+- The health badge reads `SIGNATURE_CHECK_READY` once a webhook secret is configured. Unsigned or mis-signed deliveries get a 401 and are audited.
+- A tunnel URL changes every time `cloudflared` restarts, so re-register it if you restart.
+
+### 13.5 Tests
+
+```bash
 pytest backend/tests -q
 ```
 
-Open `http://localhost:8000`. For webhooks: `cloudflared tunnel --url http://localhost:8000`.
+Tests run against a temporary SQLite file with `httpx.MockTransport` in place of Cashfree and Sarvam (§12). They never read `.env` values for providers and never touch the network.
+
+### 13.6 Demo-day checklist
+
+1. `./run.sh --check`, and confirm A/E `ELIGIBLE`, B/D `BLOCKED`, C/F `REVIEW` and the provider status.
+2. `./run.sh --reset` and open `http://localhost:8000`.
+3. Check the health badges match `integration_decisions.md`.
+4. If webhooks are used: tunnel up, URL registered, signature badge ready. Otherwise rely on polling.
+5. Sign in with the operator PIN, then run one dry pass: propose → approve → execute on INV-E.
+6. Reset again before going on stage.
 
 ---
 
@@ -955,3 +1009,19 @@ Open `http://localhost:8000`. For webhooks: `cloudflared tunnel --url http://loc
 - [ ] The agent can't reach approve or execute; it has a call cap; every reply number comes from a template.
 - [ ] T01–T22 and S01–S08 pass.
 - [ ] Demo rehearsed end to end, including an honest ending if the payout is still `PENDING`.
+
+---
+
+## 15. Implementation notes (deviations from this guide)
+
+Recorded while building v1.0 of the code:
+
+- **`TEST_PROVIDER` attempt mode.** With `NIPTA_TEST_MODE=true` and Payouts off, proposals use an in-process stand-in. It accepts the request (status `PENDING`), and only labelled `/api/dev/provider-event` events move it further. This makes the replay and reversal demo possible while keeping the guide's rules: injection is refused for `CASHFREE_SANDBOX` attempts, and `SIMULATED` attempts still never post. The UI and every explanation label it "Test provider: no money moved".
+- **`FINISHED` proposal state.** Added for proposals whose attempt ended `FAILED`, `REVERSED` or `SIMULATED`, so the one-active-proposal index allows a fresh proposal after review.
+- **Missing subtotal is allowed** when line totals are present. The lines then act as the subtotal (T22, unfamiliar layouts). A missing stated total or line total is still `DOCUMENT_INCOMPLETE`.
+- **Tax-rate check.** Each tax line with a rate is recomputed against the subtotal (±1 paise rounding). A mismatch is an `ARITHMETIC_MISMATCH` with rule `TAX_RATE`.
+- **Extra columns:** `documents.original_name`, `invoices.amount_in_words`, `invoices.ingested_seq`, `payment_attempts.invoice_id`, `amount_paise`, `last_error`, `last_checked_at`, `audit_events.batch_id`, and `beneficiary_verifications.name_at_bank`.
+- **Extra codes:** `PAYMENT_EXISTS` (a proposal was refused because an attempt is in flight or completed), `NOT_AUTHORIZED`, `SECURE_ID_UNAVAILABLE`, `TTS_UNAVAILABLE`, `UPLOAD_REJECTED`.
+- **Recovery window.** `/status` only treats a `REQUEST_RESERVED` attempt with `dispatch_started_at` set as interrupted after 45 s (longer than the 30 s HTTP timeout). Startup recovery treats it as interrupted at once.
+- **Fixture documents** are printable `.txt` files. With Sarvam vision off, an upload whose file name matches a fixture (for example `inv_a.pdf`) uses that fixture's pre-extracted JSON, labelled `PRE_EXTRACTED_FIXTURE`. Any other upload becomes `DOCUMENT_UNREADABLE` (REVIEW).
+- **Unconfirmed provider shapes** live in one place each: the transfer body in `cashfree_payouts.create_transfer`, 2FA padding in `cf_signature`, the vision message in `sarvam.extract_invoice_live`, and TTS fields in `sarvam.text_to_speech`. Track them in `integration_decisions.md`.

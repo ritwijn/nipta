@@ -1,0 +1,24 @@
+{
+  "language": "en-IN",
+  "tax_lines": [],
+  "tax_inclusive": true,
+  "notes": null,
+  "bank_account": null,
+  "ifsc": null,
+  "field_confidence": {},
+  "vendor_name": "Eastern Hardware",
+  "invoice_number": "EH-052",
+  "invoice_date": "17/11/2026",
+  "due_date": "17/12/2026",
+  "line_items": [
+    {
+      "description": "Ball valve 1/2 inch",
+      "quantity": "30",
+      "unit_price": "₹150.00",
+      "line_total": "₹4,500.00"
+    }
+  ],
+  "subtotal": "₹4,500.00",
+  "stated_total": "₹4,500.00",
+  "amount_in_words": "Rupees Four Thousand Five Hundred Only (incl. GST)"
+}

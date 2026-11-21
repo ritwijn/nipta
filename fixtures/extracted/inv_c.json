@@ -1,0 +1,35 @@
+{
+  "_fixture_invoice_id": "INV-C",
+  "language": "hi-IN",
+  "vendor_name": "कावेरी फास्टनर्स",
+  "invoice_number": "KF/182-A",
+  "invoice_date": "१२-११-२०२६",
+  "due_date": "१२-१२-२०२६",
+  "line_items": [
+    {
+      "description": "M8 hex bolts, zinc plated",
+      "quantity": "५००",
+      "unit_price": "₹१०.००",
+      "line_total": "₹५,०००.००"
+    },
+    {
+      "description": "M8 hex nuts, zinc plated",
+      "quantity": "८००",
+      "unit_price": "₹४.००",
+      "line_total": "₹३,२००.००"
+    }
+  ],
+  "subtotal": "₹८,२००.००",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "stated_total": "₹८,२००.००",
+  "amount_in_words": "आठ हज़ार दो सौ रुपये मात्र",
+  "bank_account": "XXXX9012",
+  "ifsc": "HDFC0001234",
+  "notes": "धन्यवाद।",
+  "field_confidence": {
+    "stated_total": 0.95,
+    "subtotal": 0.94,
+    "bank_account": 0.93
+  }
+}

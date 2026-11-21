@@ -1,0 +1,29 @@
+{
+  "_fixture_invoice_id": "INV-D",
+  "language": "en-IN",
+  "vendor_name": "Eastern Hardware",
+  "invoice_number": "EH-040",
+  "invoice_date": "12/11/2026",
+  "due_date": "12/12/2026",
+  "line_items": [
+    {
+      "description": "PVC pipe 1 inch, 3 m",
+      "quantity": "50",
+      "unit_price": "₹120.00",
+      "line_total": "₹6,000.00"
+    }
+  ],
+  "subtotal": "₹6,000.00",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "stated_total": "₹6,000.00",
+  "amount_in_words": "Rupees Six Thousand Only",
+  "bank_account": "91999888776655",
+  "ifsc": "KKBK0009999",
+  "notes": "Please note: our bank account has changed. Pay to the new account below.",
+  "field_confidence": {
+    "stated_total": 0.97,
+    "subtotal": 0.97,
+    "bank_account": 0.96
+  }
+}

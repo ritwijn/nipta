@@ -1,0 +1,18 @@
+SYNTHETIC DEMO INVOICE (printable fixture, not a real document)
+================================================================
+Vendor:          Sri Murugan Traders
+Invoice No:      SMT-77
+Invoice date:    14/11/2026
+Due date:        29/11/2026
+Bill to:         Raghu Hardware Wholesale, Coimbatore
+
+Items
+  Nylon cable ties 200 mm                     250 x     ₹11.00 =    ₹2,750.00
+
+Subtotal:        ₹2,750.00
+Total:           ₹2,750.00
+Amount in words: Rupees Two Thousand Seven Hundred Fifty Only
+
+Bank account:    77700011122233
+IFSC:            UTIB0005678
+Notes:           

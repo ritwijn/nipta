@@ -1,0 +1,35 @@
+{
+  "language": "en-IN",
+  "tax_lines": [
+    {
+      "label": "CGST",
+      "rate": "9%",
+      "amount": "₹450.00"
+    },
+    {
+      "label": "SGST",
+      "rate": "9%",
+      "amount": "₹450.00"
+    }
+  ],
+  "tax_inclusive": false,
+  "notes": null,
+  "bank_account": null,
+  "ifsc": null,
+  "field_confidence": {},
+  "vendor_name": "Kaveri Fasteners",
+  "invoice_number": "KF-260",
+  "invoice_date": "18/11/2026",
+  "due_date": "18/12/2026",
+  "line_items": [
+    {
+      "description": "Spring washers M8",
+      "quantity": "1000",
+      "unit_price": "₹5.00",
+      "line_total": "₹5,000.00"
+    }
+  ],
+  "subtotal": "₹5,000.00",
+  "stated_total": "₹5,900.00",
+  "amount_in_words": "Rupees Five Thousand Nine Hundred Only"
+}

@@ -1,0 +1,24 @@
+{
+  "language": "en-IN",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "notes": null,
+  "bank_account": null,
+  "ifsc": null,
+  "field_confidence": {},
+  "vendor_name": "Eastern Hardware",
+  "invoice_number": "EH-051",
+  "invoice_date": "16/11/2026",
+  "due_date": "16/12/2026",
+  "line_items": [
+    {
+      "description": "GI elbow 1 inch",
+      "quantity": "200",
+      "unit_price": "₹18.50",
+      "line_total": "₹3,700.00"
+    }
+  ],
+  "subtotal": "₹3,700.00",
+  "stated_total": "₹3,700.00",
+  "amount_in_words": "Rupees Three Thousand Seven Hundred Only"
+}

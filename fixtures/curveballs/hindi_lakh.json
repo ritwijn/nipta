@@ -1,0 +1,24 @@
+{
+  "language": "hi-IN",
+  "tax_lines": [],
+  "tax_inclusive": false,
+  "notes": null,
+  "bank_account": null,
+  "ifsc": null,
+  "field_confidence": {},
+  "vendor_name": "कोयंबटूर पैकिंग",
+  "invoice_number": "CP-305",
+  "invoice_date": "१६/११/२०२६",
+  "due_date": "०१/१२/२०२६",
+  "line_items": [
+    {
+      "description": "Corrugated boxes, export grade",
+      "quantity": "१,५००",
+      "unit_price": "₹८०.००",
+      "line_total": "₹१,२०,०००.००"
+    }
+  ],
+  "subtotal": "₹१.२ लाख",
+  "stated_total": "₹१,२०,०००.००",
+  "amount_in_words": "एक लाख बीस हज़ार रुपये मात्र"
+}
