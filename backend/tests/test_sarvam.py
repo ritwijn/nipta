@@ -228,3 +228,17 @@ def test_absent_field_zero_confidence_is_not_a_review(client, conn, sarvam_mock)
                                "ifsc": {"confidence": 0.0}, "notes": {"confidence": 0.0}}
     inv = _upload_and_process(client, "nobank.jpg")["invoices"][0]
     assert inv["decision"] == "ELIGIBLE", inv["findings"]
+
+
+@pytest.mark.parametrize("field", ["bank_account", "ifsc", "invoice_number"])
+def test_doc_ai_numeric_identifier_is_unreadable(field):
+    # A number would drop leading zeros (account 001234567890 -> 1234567890), so refuse it.
+    with pytest.raises(sarvam.ExtractionFailed, match="as a number"):
+        sarvam.doc_ai_result_to_raw({"vendor_name": "Kaveri", field: 1234567890},
+                                    {field: {"confidence": 0.99}}, partial=False)
+
+
+def test_doc_ai_numeric_amount_is_kept_as_string():
+    raw = sarvam.doc_ai_result_to_raw({"stated_total": 8200, "bank_account": "001234567890"}, {}, partial=False)
+    assert raw.stated_total == "8200"
+    assert raw.bank_account == "001234567890"

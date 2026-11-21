@@ -145,7 +145,17 @@ def _min_confidence(node) -> float | None:
     return None
 
 
+# Identifiers where a number would silently drop leading zeros (account 001234567890 -> 1234567890).
+IDENTIFIER_FIELDS = ("bank_account", "ifsc", "invoice_number")
+
+
 def doc_ai_result_to_raw(result: dict, annotations: dict | None, partial: bool) -> ExtractionRaw:
+    if isinstance(result, dict):
+        numeric = [f for f in IDENTIFIER_FIELDS
+                   if isinstance(result.get(f), (int, float)) and not isinstance(result.get(f), bool)]
+        if numeric:
+            raise ExtractionFailed(f"Document AI returned {', '.join(numeric)} as a number; "
+                                   "leading zeros may be lost")
     data = _stringify(result or {})
     if not isinstance(data, dict):
         raise ExtractionFailed("Document AI returned no structured result")
