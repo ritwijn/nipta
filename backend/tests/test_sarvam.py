@@ -228,3 +228,17 @@ def test_absent_field_zero_confidence_is_not_a_review(client, conn, sarvam_mock)
                                "ifsc": {"confidence": 0.0}, "notes": {"confidence": 0.0}}
     inv = _upload_and_process(client, "nobank.jpg")["invoices"][0]
     assert inv["decision"] == "ELIGIBLE", inv["findings"]
+
+
+@pytest.mark.parametrize("field", ["bank_account", "ifsc", "invoice_number"])
+def test_doc_ai_numeric_identifier_is_refused(field):
+    # 001234567890 as a number would come back as 1234567890 and look like a changed account.
+    with pytest.raises(sarvam.ExtractionFailed, match="as a number"):
+        sarvam.doc_ai_result_to_raw({"vendor_name": "Kaveri", field: 1234567890}, {}, partial=False)
+
+
+def test_doc_ai_language_sent_only_when_configured(client, conn, sarvam_mock):
+    live(sarvam_vision_enabled=True, sarvam_doc_ai_language="ta-IN")
+    sarvam_mock.result = HANDWRITTEN_TAMIL
+    _upload_and_process(client, "lang.jpg")
+    assert b'name="language"' in sarvam_mock.bodies("/doc-ai/v1/job/extract")[0].content
