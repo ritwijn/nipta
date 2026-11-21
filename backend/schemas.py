@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Severity = Literal["BLOCK", "REVIEW", "INFO"]
 Decision = Literal["ELIGIBLE", "REVIEW", "BLOCKED"]
-Language = Literal["en", "ta", "hi"]
+Language = Literal["en", "kn", "hi"]
 
 
 class LineItemRaw(BaseModel):

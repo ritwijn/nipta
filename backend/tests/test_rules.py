@@ -17,13 +17,13 @@ def test_fixture_batch_decisions(conn):
     assert set(findings(conn, "INV-F")) == {"VENDOR_UNRESOLVED"}
 
 
-def test_T01_clean_tamil_invoice(conn):
+def test_T01_clean_kannada_invoice(conn):
     inv = db.row(conn, "SELECT * FROM invoices WHERE invoice_id='INV-E'")
     assert inv["vendor_id"] == "V-COIMBATORE-PACKING"
     assert inv["stated_total_paise"] == 320000 and inv["computed_total_paise"] == 320000
     assert inv["invoice_date"] == "2026-11-05" and inv["decision"] == "ELIGIBLE"
     raw = pipeline.sarvam.load_fixture_extraction("inv_e")
-    raw.stated_total = "௩,௨௦௦.?"  # an unreadable Tamil total
+    raw.stated_total = "೩,೨೦೦.?"  # an unreadable Kannada total
     raw.invoice_number = "CP-201-X"
     iid = add_invoice(conn, raw)
     f = findings(conn, iid)
@@ -37,6 +37,9 @@ def test_T02_hindi_numerals_and_lakh(conn):
     assert N.parse_amount_paise("₹१.२ लाख") == 12_000_000
     assert N.parse_amount_paise("2.5 crore") == 2_500_000_000
     assert N.words_to_paise("एक लाख बीस हज़ार रुपये मात्र") == 12_000_000
+    assert N.parse_amount_paise("₹೧,೨೦,೦೦೦.೫೦") == 12_000_050   # Kannada digits
+    assert N.parse_amount_paise("೧.೨ ಲಕ್ಷ") == 12_000_000
+    assert N.parse_amount_paise("ರೂ ೩,೨೦೦") == 320_000
     iid = add_invoice(conn, curveball("hindi_lakh"))
     inv = db.row(conn, "SELECT * FROM invoices WHERE invoice_id=?", (iid,))
     assert inv["stated_total_paise"] == inv["subtotal_paise"] == 12_000_000
@@ -174,7 +177,7 @@ def test_T22_missing_fields_review_not_block(conn):
     raw = curveball("devanagari_known_vendor")
     raw.invoice_number = "TT-103"
     raw.line_items[0].line_total = None
-    raw.amount_in_words = "மூவாயிரம் ரூபாய்"
+    raw.amount_in_words = "ಮೂರು ಸಾವಿರ ರೂಪಾಯಿ"
     iid = add_invoice(conn, raw)
     f = findings(conn, iid)
     assert decision(conn, iid) == "REVIEW"

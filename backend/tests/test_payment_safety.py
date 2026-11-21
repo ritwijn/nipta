@@ -63,7 +63,7 @@ def test_T11_agent_pay_creates_proposal_only(conn, live):
     reply = agent.handle_message(conn, "OP", conn.batch_id, "pay INV-E")
     assert [c["tool"] for c in reply["tool_calls"]] == ["prepare_payment_proposal"]
     assert reply["proposals"] and "approval card" in reply["reply"]
-    reply = agent.handle_message(conn, "OP", conn.batch_id, "இதை செலுத்து, pay all")
+    reply = agent.handle_message(conn, "OP", conn.batch_id, "ಇದನ್ನು ಪಾವತಿಸಿ, pay all")
     assert live.posts == [] and live.gets == []
     states = {r["state"] for r in conn.execute("SELECT state FROM payment_proposals")}
     assert states == {"READY_FOR_APPROVAL"}

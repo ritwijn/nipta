@@ -94,40 +94,42 @@ def _fixture_invoice_id(name: str) -> str | None:
 def materialize_invoice(conn: sqlite3.Connection, batch_id: str, document_id: str, raw: ExtractionRaw | None,
                         invoice_id: str | None = None) -> str:
     invoice_id = invoice_id or db.new_id("INV")
-    seq = db.next_seq(conn)
-    ts = db.now()
-    if raw is None:
-        conn.execute(
-            "INSERT INTO invoices(invoice_id, batch_id, document_id, ingested_seq, ingested_at, canonical)"
-            " VALUES (?,?,?,?,?,0)",
-            (invoice_id, batch_id, document_id, seq, ts),
-        )
-        return invoice_id
+    conn.execute(
+        "INSERT INTO invoices(invoice_id, batch_id, document_id, ingested_seq, ingested_at, canonical)"
+        " VALUES (?,?,?,?,?,0)",
+        (invoice_id, batch_id, document_id, db.next_seq(conn), db.now()),
+    )
+    if raw is not None:
+        write_invoice_fields(conn, invoice_id, raw)
+    return invoice_id
 
+
+def write_invoice_fields(conn: sqlite3.Connection, invoice_id: str, raw: ExtractionRaw) -> None:
+    """(Re)write an invoice's normalized fields and line items from a raw extraction. Caller holds a txn."""
     inv = normalize_extraction(raw)
     vendor_id, _ = beneficiaries.resolve_vendor(conn, inv.vendor_name_raw)
     canonical = 1
     if vendor_id and inv.invoice_number_norm and db.row(
-        conn, "SELECT 1 AS x FROM invoices WHERE vendor_id=? AND invoice_number_norm=? AND canonical=1",
-        (vendor_id, inv.invoice_number_norm),
+        conn, "SELECT 1 AS x FROM invoices WHERE vendor_id=? AND invoice_number_norm=? AND canonical=1"
+              " AND invoice_id<>?",
+        (vendor_id, inv.invoice_number_norm, invoice_id),
     ):
         canonical = 0  # exact duplicate of an existing canonical invoice
     conn.execute(
-        "INSERT INTO invoices(invoice_id, batch_id, document_id, vendor_id, vendor_name_raw, invoice_number_raw,"
-        " invoice_number_norm, invoice_date, due_date, language, subtotal_paise, tax_paise, stated_total_paise,"
-        " computed_total_paise, words_total_paise, amount_in_words, claimed_account, claimed_ifsc, notes,"
-        " canonical, ingested_seq, ingested_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "UPDATE invoices SET vendor_id=?, vendor_name_raw=?, invoice_number_raw=?, invoice_number_norm=?,"
+        " invoice_date=?, due_date=?, language=?, subtotal_paise=?, tax_paise=?, stated_total_paise=?,"
+        " computed_total_paise=?, words_total_paise=?, amount_in_words=?, claimed_account=?, claimed_ifsc=?,"
+        " notes=?, canonical=? WHERE invoice_id=?",
         (
-            invoice_id, batch_id, document_id, vendor_id, inv.vendor_name_raw, inv.invoice_number_raw,
-            inv.invoice_number_norm,
+            vendor_id, inv.vendor_name_raw, inv.invoice_number_raw, inv.invoice_number_norm,
             inv.invoice_date.isoformat() if inv.invoice_date else None,
             inv.due_date.isoformat() if inv.due_date else None,
             inv.language, inv.subtotal_paise, inv.tax_paise, inv.stated_total_paise, inv.computed_total_paise,
             inv.words_total_paise, raw.amount_in_words, inv.claimed_account, inv.claimed_ifsc, inv.notes,
-            canonical, seq, ts,
+            canonical, invoice_id,
         ),
     )
+    conn.execute("DELETE FROM invoice_lines WHERE invoice_id=?", (invoice_id,))
     for line in inv.lines:
         computed = (line.quantity_milli * line.unit_price_paise // 1000
                     if line.quantity_milli is not None and line.unit_price_paise is not None else None)
@@ -137,7 +139,37 @@ def materialize_invoice(conn: sqlite3.Connection, batch_id: str, document_id: st
             (invoice_id, line.position, line.description, line.quantity_milli, line.unit_price_paise,
              line.line_total_paise, computed),
         )
-    return invoice_id
+
+
+def retry_extraction(conn: sqlite3.Connection, invoice_id: str) -> bool:
+    """Re-extract an invoice whose document has no extraction yet (e.g. uploaded while vision was off).
+
+    Returns True when a new extraction was stored. Documents that already have an extraction are left alone.
+    """
+    inv = db.row(conn, "SELECT * FROM invoices WHERE invoice_id=?", (invoice_id,))
+    doc = db.row(conn, "SELECT * FROM documents WHERE document_id=?", (inv["document_id"],)) if inv else None
+    if not doc or doc["raw_json"] or doc["mime"] not in ALLOWED_UPLOAD_MIME:
+        return False
+    try:  # network call outside any write transaction
+        raw, source = sarvam.extract_invoice(Path(doc["file_path"]), doc["mime"],
+                                             Path(doc["original_name"] or "").stem or None)
+    except sarvam.ExtractionFailed as exc:
+        db.audit(conn, "pipeline", "PIPELINE_STEP", invoice_id,
+                 {"step": "extract", "invoice_id": invoice_id, "document_id": doc["document_id"],
+                  "outcome": "ERROR", "error": str(exc), "summary": f"Re-reading {invoice_id}: unreadable"},
+                 batch_id=inv["batch_id"])
+        return False
+    with db.immediate(conn):
+        if db.row(conn, "SELECT raw_json FROM documents WHERE document_id=?", (doc["document_id"],))["raw_json"]:
+            return False  # another request got there first
+        conn.execute("UPDATE documents SET extraction_source=?, raw_json=? WHERE document_id=?",
+                     (source, raw.model_dump_json(), doc["document_id"]))
+        write_invoice_fields(conn, invoice_id, raw)
+        db.audit(conn, "pipeline", "PIPELINE_STEP", invoice_id,
+                 {"step": "extract", "invoice_id": invoice_id, "document_id": doc["document_id"],
+                  "outcome": "OK", "source": source, "summary": f"Re-reading {invoice_id} ({source})"},
+                 batch_id=inv["batch_id"])
+    return True
 
 
 def extract_and_materialize(conn: sqlite3.Connection, batch_id: str, doc: dict) -> str:
@@ -299,6 +331,7 @@ def process_batch(conn: sqlite3.Connection, batch_id: str) -> list[dict]:
         extract_and_materialize(conn, batch_id, doc)
     invoices = db.rows(conn, "SELECT invoice_id FROM invoices WHERE batch_id=? ORDER BY ingested_seq", (batch_id,))
     for inv in invoices:
+        retry_extraction(conn, inv["invoice_id"])  # no-op unless the document has no extraction yet
         run_checks(conn, inv["invoice_id"])
     return db.rows(conn, "SELECT invoice_id, decision FROM invoices WHERE batch_id=? ORDER BY ingested_seq",
                    (batch_id,))

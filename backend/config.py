@@ -43,7 +43,7 @@ class Settings:
     sarvam_vision_model: str = "sarvam-105b"          # used only when extraction mode is "chat"
     sarvam_extraction_mode: str = "doc_ai"            # "doc_ai" (Sarvam Vision OCR job) or "chat"
     sarvam_doc_ai_timeout_seconds: int = 120
-    sarvam_doc_ai_language: str | None = None          # e.g. "ta-IN"; unset = not sent
+    sarvam_doc_ai_language: str | None = None          # e.g. "kn-IN"; unset = not sent
     sarvam_tts_model: str = "bulbul:v3"
     sarvam_tts_speaker: str | None = None             # e.g. "shubh" (bulbul:v3 default)
     sarvam_stt_model: str = "saaras:v4"

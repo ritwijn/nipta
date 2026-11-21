@@ -4,38 +4,94 @@
     {
       "vendor_id": "V-KAVERI-FASTENERS",
       "display_name": "Kaveri Fasteners",
-      "aliases": ["Kaveri Fasteners", "காவேரி ஃபாஸ்டனர்ஸ்", "कावेरी फास्टनर्स"],
-      "statutory_risk": 0, "deadline_basis_verified": 0, "payment_terms_days": 30,
-      "beneficiary": {"beneficiary_id": "BEN-KF", "account_holder_name": "KAVERI FASTENERS",
-                      "bank_account_number": "50100234569012", "ifsc": "HDFC0001234"},
-      "verification": {"account_status": "VALID", "name_match_result": "DIRECT_MATCH", "name_at_bank": "KAVERI FASTENERS"}
+      "aliases": [
+        "Kaveri Fasteners",
+        "ಕಾವೇರಿ ಫಾಸ್ಟೆನರ್ಸ್",
+        "कावेरी फास्टनर्स"
+      ],
+      "statutory_risk": 0,
+      "deadline_basis_verified": 0,
+      "payment_terms_days": 30,
+      "beneficiary": {
+        "beneficiary_id": "BEN-KF",
+        "account_holder_name": "KAVERI FASTENERS",
+        "bank_account_number": "50100234569012",
+        "ifsc": "HDFC0001234"
+      },
+      "verification": {
+        "account_status": "VALID",
+        "name_match_result": "DIRECT_MATCH",
+        "name_at_bank": "KAVERI FASTENERS"
+      }
     },
     {
       "vendor_id": "V-TAMIL-TOOLS",
       "display_name": "Tamil Tools",
-      "aliases": ["Tamil Tools", "தமிழ் டூல்ஸ்", "तमिल टूल्स"],
-      "statutory_risk": 1, "deadline_basis_verified": 1, "payment_terms_days": 15,
-      "beneficiary": {"beneficiary_id": "BEN-TT", "account_holder_name": "TAMIL TOOLS",
-                      "bank_account_number": "40011223347788", "ifsc": "ICIC0002345"},
-      "verification": {"account_status": "VALID", "name_match_result": "DIRECT_MATCH", "name_at_bank": "TAMIL TOOLS"}
+      "aliases": [
+        "Tamil Tools",
+        "ತಮಿಳ್ ಟೂಲ್ಸ್",
+        "तमिल टूल्स"
+      ],
+      "statutory_risk": 1,
+      "deadline_basis_verified": 1,
+      "payment_terms_days": 15,
+      "beneficiary": {
+        "beneficiary_id": "BEN-TT",
+        "account_holder_name": "TAMIL TOOLS",
+        "bank_account_number": "40011223347788",
+        "ifsc": "ICIC0002345"
+      },
+      "verification": {
+        "account_status": "VALID",
+        "name_match_result": "DIRECT_MATCH",
+        "name_at_bank": "TAMIL TOOLS"
+      }
     },
     {
       "vendor_id": "V-EASTERN-HARDWARE",
       "display_name": "Eastern Hardware",
-      "aliases": ["Eastern Hardware", "ஈஸ்டர்ன் ஹார்டுவேர்", "ईस्टर्न हार्डवेयर"],
-      "statutory_risk": 0, "deadline_basis_verified": 0, "payment_terms_days": 30,
-      "beneficiary": {"beneficiary_id": "BEN-EH", "account_holder_name": "EASTERN HARDWARE",
-                      "bank_account_number": "30200456781234", "ifsc": "SBIN0003456"},
-      "verification": {"account_status": "VALID", "name_match_result": "DIRECT_MATCH", "name_at_bank": "EASTERN HARDWARE"}
+      "aliases": [
+        "Eastern Hardware",
+        "ಈಸ್ಟರ್ನ್ ಹಾರ್ಡ್‌ವೇರ್",
+        "ईस्टर्न हार्डवेयर"
+      ],
+      "statutory_risk": 0,
+      "deadline_basis_verified": 0,
+      "payment_terms_days": 30,
+      "beneficiary": {
+        "beneficiary_id": "BEN-EH",
+        "account_holder_name": "EASTERN HARDWARE",
+        "bank_account_number": "30200456781234",
+        "ifsc": "SBIN0003456"
+      },
+      "verification": {
+        "account_status": "VALID",
+        "name_match_result": "DIRECT_MATCH",
+        "name_at_bank": "EASTERN HARDWARE"
+      }
     },
     {
       "vendor_id": "V-COIMBATORE-PACKING",
       "display_name": "Coimbatore Packing",
-      "aliases": ["Coimbatore Packing", "கோயம்புத்தூர் பேக்கிங்", "कोयंबटूर पैकिंग"],
-      "statutory_risk": 1, "deadline_basis_verified": 0, "payment_terms_days": 15,
-      "beneficiary": {"beneficiary_id": "BEN-CP", "account_holder_name": "COIMBATORE PACKING",
-                      "bank_account_number": "60001122336011", "ifsc": "CNRB0004567"},
-      "verification": {"account_status": "VALID", "name_match_result": "DIRECT_MATCH", "name_at_bank": "COIMBATORE PACKING"}
+      "aliases": [
+        "Coimbatore Packing",
+        "ಕೊಯಮತ್ತೂರು ಪ್ಯಾಕಿಂಗ್",
+        "कोयंबटूर पैकिंग"
+      ],
+      "statutory_risk": 1,
+      "deadline_basis_verified": 0,
+      "payment_terms_days": 15,
+      "beneficiary": {
+        "beneficiary_id": "BEN-CP",
+        "account_holder_name": "COIMBATORE PACKING",
+        "bank_account_number": "60001122336011",
+        "ifsc": "CNRB0004567"
+      },
+      "verification": {
+        "account_status": "VALID",
+        "name_match_result": "DIRECT_MATCH",
+        "name_at_bank": "COIMBATORE PACKING"
+      }
     }
   ]
 }

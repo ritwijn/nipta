@@ -1,14 +1,14 @@
 SYNTHETIC DEMO INVOICE (printable fixture, not a real document)
 ================================================================
-Vendor:          தமிழ் டூல்ஸ்
+Vendor:          ತಮಿಳ್ ಟೂಲ್ಸ್
 Invoice No:      TT-091
 Invoice date:    08/11/2026
 Due date:        23/11/2026
 Bill to:         Raghu Hardware Wholesale, Coimbatore
 
 Items
-  சுத்தியல் (claw hammer)                      10 x    ₹250.00 =    ₹2,500.00
-  ஸ்க்ரூடிரைவர் செட் (screwdriver set)          9 x    ₹200.00 =    ₹1,800.00
+  ಸುತ್ತಿಗೆ (claw hammer)                       10 x    ₹250.00 =    ₹2,500.00
+  ಸ್ಕ್ರೂಡ್ರೈವರ್ ಸೆಟ್ (screwdriver set)          9 x    ₹200.00 =    ₹1,800.00
 
 Subtotal:        ₹4,500.00
 Total:           ₹4,500.00
@@ -16,4 +16,4 @@ Amount in words: Rupees Four Thousand Five Hundred Only
 
 Bank account:    (not printed)
 IFSC:            (not printed)
-Notes:           நன்றி.
+Notes:           ಧನ್ಯವಾದಗಳು.

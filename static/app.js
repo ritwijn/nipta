@@ -76,7 +76,7 @@ async function loadHealth() {
   const caps = h.capabilities;
   state.caps = caps;
   $("#voiceHint").textContent = caps.sarvam_stt === "LIVE"
-    ? "Tap 🎤, ask in Tamil, Hindi or English, tap again to send (max 25 s)."
+    ? "Tap 🎤, ask in Kannada, Hindi or English, tap again to send (max 25 s)."
     : "Voice input is off (enable Sarvam speech-to-text). Typed questions work.";
   const el = $("#capabilities");
   el.innerHTML = Object.entries(CAP_LABELS).map(([k, label]) => {
@@ -184,27 +184,55 @@ $("#loadFixtures").addEventListener("click", async () => {
   } catch (err) { toast(err.message); }
 });
 
+// Run a long action with visible progress on the button that started it.
+async function busy(btn, label, fn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  try { return await fn(); }
+  finally { btn.textContent = original; renderSession(); }
+}
+
+function summaryText(s) {
+  const d = s.by_decision;
+  return `${d.ELIGIBLE} eligible · ${d.REVIEW} need review · ${d.BLOCKED} blocked`;
+}
+
+async function runChecks(batchId) {
+  const r = await busy($("#processBatch"), "Reading invoices…", () =>
+    api(`/api/batches/${batchId}/process`, { method: "POST" }));
+  await loadBatches(batchId);
+  const what = r.new_documents ? `Read ${r.new_documents} new document(s).` : "No new documents; re-checked all invoices.";
+  toast(`${what} ${summaryText(r.summary)}`);
+  if (r.invoices.length === 1) showInvoice(r.invoices[0].invoice_id);
+  return r;
+}
+
 $("#upload").addEventListener("change", async (e) => {
   const files = [...e.target.files];
+  e.target.value = "";
   if (!files.length) return;
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
   try {
     const r = await api("/api/batches", { method: "POST", body: fd });
-    const dups = r.documents.filter((d) => d.duplicate_upload).length;
+    const dups = r.documents.filter((d) => d.duplicate_upload);
+    if (r.all_duplicates) {
+      await loadBatches(r.batch_id);
+      const inv = dups[0].existing_invoice_id;
+      toast(`Already uploaded${inv ? ` as ${inv}` : ""}. No second bill was created; showing the existing one.`);
+      if (inv) showInvoice(inv);
+      return;
+    }
+    if (dups.length) toast(`${dups.length} file(s) were already uploaded and were skipped.`);
     await loadBatches(r.batch_id);
-    toast(`${files.length} file(s) uploaded${dups ? `, ${dups} identical to an earlier upload` : ""}. Press Run checks.`);
+    await runChecks(r.batch_id);  // read and check straight away; no separate click needed
   } catch (err) { toast(err.message); }
-  e.target.value = "";
 });
 
 $("#processBatch").addEventListener("click", async () => {
   if (!state.batchId) return;
-  try {
-    await api(`/api/batches/${state.batchId}/process`, { method: "POST" });
-    await loadBatches(state.batchId);
-    toast("Checks complete");
-  } catch (err) { toast(err.message); }
+  try { await runChecks(state.batchId); } catch (err) { toast(err.message); }
 });
 
 // ---- invoice detail -----------------------------------------------------------
@@ -271,9 +299,14 @@ async function showInvoice(id) {
       showInvoice(id);
     } catch (err) { toast(err.message); }
   });
-  $("#rerun").onclick = async () => {
-    try { await api(`/api/invoices/${id}/checks`, { method: "POST" }); await refreshBatch(); showInvoice(id); toast("Checks re-run"); }
-    catch (err) { toast(err.message); }
+  $("#rerun").onclick = async (ev) => {
+    try {
+      const inv = await busy(ev.currentTarget, "Checking…", () => api(`/api/invoices/${id}/checks`, { method: "POST" }));
+      await refreshBatch();
+      await showInvoice(id);
+      const reasons = inv.findings.filter((f) => f.status === "OPEN").map((f) => f.code).join(", ");
+      toast(`${id}: ${inv.decision}${reasons ? ` (${reasons})` : ""}`);
+    } catch (err) { toast(err.message); }
   };
   const propose = $("#propose");
   if (propose) propose.onclick = async () => {
