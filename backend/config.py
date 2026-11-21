@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -33,6 +34,11 @@ def _int(name: str, default: int) -> int:
 def _float(name: str, default: float) -> float:
     raw = os.getenv(name)
     return float(raw) if raw not in (None, "") else default
+
+
+DEV_SESSION_SECRET = "dev-only-session-secret-change-me"
+# Unset or published default secret would make tokens forgeable; sessions then just reset on restart.
+_PROCESS_SESSION_SECRET = secrets.token_hex(32)
 
 
 @dataclass(frozen=True)
@@ -80,10 +86,14 @@ class Settings:
     operator_id: str = "OP-RAGHU"
     buyer_id: str = "BUYER-RAGHU-HW"
     operator_pin: str = "2468"
-    session_secret: str = "dev-only-session-secret-change-me"
+    session_secret: str = ""                  # unset/default -> random per process (see __post_init__)
     session_ttl_seconds: int = 8 * 3600
     database_path: str = "nipta.db"
     upload_dir: str = "uploads"
+
+    def __post_init__(self):
+        if self.session_secret in ("", DEV_SESSION_SECRET):
+            object.__setattr__(self, "session_secret", _PROCESS_SESSION_SECRET)
 
     @property
     def twofa_key_ok(self) -> bool:
@@ -168,7 +178,7 @@ def load_settings() -> Settings:
         agent_max_tool_calls=_int("NIPTA_AGENT_MAX_TOOL_CALLS", 6),
         test_mode=_bool("NIPTA_TEST_MODE", False),
         operator_pin=_str("NIPTA_OPERATOR_PIN", "2468"),
-        session_secret=_str("NIPTA_SESSION_SECRET", "dev-only-session-secret-change-me"),
+        session_secret=_str("NIPTA_SESSION_SECRET", ""),
         database_path=_str("NIPTA_DATABASE_PATH", "nipta.db"),
         upload_dir=_str("NIPTA_UPLOAD_DIR", "uploads"),
     )

@@ -383,26 +383,26 @@ This is more than the seven tables PRD v4 lists as a minimum. Separating posting
 | Route | Auth | Purpose |
 |---|---|---|
 | `GET /api/health` | none | Capability report (which providers are live) |
-| `POST /api/auth/session` | PIN | Issue operator session token (HMAC-signed, expiring) |
+| `POST /api/auth/session` | PIN | Issue operator session token (HMAC-signed, expiring); 5 wrong PINs lock it for 60 s |
 | `POST /api/batches` | session | Upload files or load the fixture batch |
 | `POST /api/batches/{id}/process` | session | Extraction plus checks |
-| `GET /api/batches/{id}` | none (demo) | Invoices, decisions, findings, evidence |
+| `GET /api/batches/{id}` | session | Invoices, decisions, findings, evidence |
 | `POST /api/invoices` | session | Add one invoice as structured JSON (judge curveball path) |
 | `POST /api/invoices/{id}/checks` | session | Re-run checks idempotently |
-| `GET /api/invoices/{id}/findings` | none (demo) | Findings, evidence, masked bank comparison |
-| `GET /api/invoices/{id}/source` | none (demo) | Original document or printable fixture |
+| `GET /api/invoices/{id}/findings` | session | Findings, evidence, masked bank comparison |
+| `GET /api/invoices/{id}/source` | session | Original document or printable fixture |
 | `POST /api/findings/{id}/resolve` | session | Resolve a REVIEW finding with a reason |
-| `GET /api/vendors/{id}/verification` | none (demo) | Saved beneficiary (masked) and evidence |
+| `GET /api/vendors/{id}/verification` | session | Saved beneficiary (masked) and evidence |
 | `POST /api/vendors/{id}/verify` | session | Run Secure ID BAV on the saved beneficiary |
-| `GET /api/payment-plan` | none (demo) | Ranked eligible queue for `cash_budget_paise` |
+| `GET /api/payment-plan` | session | Ranked eligible queue for `cash_budget_paise` |
 | `POST /api/invoices/{id}/proposal` | session | Freeze a snapshot |
 | `POST /api/proposals/{id}/approve` | session + snapshot hash | Authorize |
 | `POST /api/proposals/{id}/execute` | session | Reserve and dispatch |
-| `GET /api/proposals/{id}/status` | none (demo) | Local status, reconciling non-terminal attempts |
+| `GET /api/proposals/{id}/status` | session | Local status, reconciling non-terminal attempts |
 | `POST /api/webhooks/cashfree` | signature | Provider events |
 | `POST /api/agent/message` | session | Multilingual question to read-only tools |
 | `POST /api/speech/tts` | session | Speak a grounded explanation |
-| `GET /api/audit` | none (demo) | Timeline |
+| `GET /api/audit` | session | Timeline |
 | `POST /api/dev/provider-event` | session, test mode only | Labeled injection of a normalized provider event for replay and reversal demos |
 
 Errors use stable codes: `ARITHMETIC_MISMATCH`, `WORDS_FIGURES_MISMATCH`, `POSSIBLE_DUPLICATE`, `CONFIRMED_DUPLICATE`, `CHANGED_BENEFICIARY`, `ACCOUNT_NAME_MISMATCH`, `VERIFICATION_MISSING`, `DOCUMENT_UNREADABLE`, `APPROVAL_STALE`, `APPROVAL_EXPIRED`, `NOT_ELIGIBLE`, `LIVE_VERIFICATION_REQUIRED`, `PROVIDER_STATUS_UNKNOWN`.

@@ -21,7 +21,7 @@ from .integrations import cashfree_secureid, relay, sarvam
 from .integrations.cashfree_payouts import ProviderRejected, ProviderUncertain
 from .payments import approval, execution, status
 from .rules import beneficiaries, priority
-from .rules.normalize import format_inr, mask_account
+from .rules.normalize import format_inr, mask_account, to_ascii_digits
 from .schemas import (AgentMessageRequest, ApproveRequest, ProviderEventRequest, ResolveFindingRequest,
                       SessionRequest, StructuredInvoiceRequest, TTSRequest, VendorCallResult)
 
@@ -142,7 +142,7 @@ def invoice_summary(conn, inv: dict, lang: str = "en") -> dict:
         "stated_total_paise": inv["stated_total_paise"],
         "computed_total_paise": inv["computed_total_paise"],
         "decision": inv["decision"],
-        "decision_label": explain.DECISION[inv["decision"]][lang],
+        "decision_label": explain.DECISION[inv["decision"]][explain._lang(lang)],
         "payment_overlay": OVERLAY.get(attempt["status"]) if attempt else None,
         "attempt": _public_attempt(attempt),
         "proposal": _active_proposal(conn, inv["invoice_id"]),
@@ -218,18 +218,30 @@ def health():
     return {"ok": True, "capabilities": capability_report()}
 
 
+PIN_MAX_FAILS, PIN_LOCK_SECONDS = 5, 60
+# shortcut: one process-wide counter (single-process app); per-client limits if it ever runs multi-user.
+_pin_guard = {"fails": 0, "locked_until": 0}
+
+
 @app.post("/api/auth/session")
 def create_session(body: SessionRequest, conn: sqlite3.Connection = Depends(get_conn)):
     s = get_settings()
-    if not hmac.compare_digest(body.pin, s.operator_pin):
+    if _pin_guard["locked_until"] > db.now():
+        raise HTTPException(429, "Too many wrong PINs; try again in a minute")
+    pin = to_ascii_digits(body.pin.strip())  # PIN typed with Kannada/Hindi digits
+    if not hmac.compare_digest(pin.encode(), s.operator_pin.encode()):  # bytes: str compare rejects non-ASCII
         db.audit(conn, "anonymous", "SESSION_DENIED", None, {})
+        _pin_guard["fails"] += 1
+        if _pin_guard["fails"] >= PIN_MAX_FAILS:
+            _pin_guard.update(fails=0, locked_until=db.now() + PIN_LOCK_SECONDS)
         raise HTTPException(401, "Wrong PIN")
+    _pin_guard["fails"] = 0
     token, expires = issue_token(s.operator_id)
     db.audit(conn, s.operator_id, "SESSION_ISSUED", None, {"expires_at": expires})
     return {"token": token, "operator_id": s.operator_id, "expires_at": expires}
 
 
-@app.get("/api/batches")
+@app.get("/api/batches", dependencies=[Depends(require_session)])
 def list_batches(conn: sqlite3.Connection = Depends(get_conn)):
     # Batches with no documents (e.g. created by an older duplicate-upload path) are hidden, not deleted.
     return db.rows(conn, "SELECT b.*, (SELECT COUNT(*) FROM invoices i WHERE i.batch_id=b.batch_id) AS invoice_count"
@@ -298,7 +310,7 @@ def process_batch(batch_id: str, operator: str = Depends(require_session),
             "summary": explain.batch_summary(conn, batch_id)}
 
 
-@app.get("/api/batches/{batch_id}")
+@app.get("/api/batches/{batch_id}", dependencies=[Depends(require_session)])
 def get_batch(batch_id: str, lang: str = "en", conn: sqlite3.Connection = Depends(get_conn)):
     b = db.row(conn, "SELECT * FROM batches WHERE batch_id=?", (batch_id,))
     if b is None:
@@ -335,7 +347,7 @@ def rerun_checks(invoice_id: str, operator: str = Depends(require_session),
     return invoice_summary(conn, _invoice_or_404(conn, invoice_id))
 
 
-@app.get("/api/invoices/{invoice_id}/findings")
+@app.get("/api/invoices/{invoice_id}/findings", dependencies=[Depends(require_session)])
 def invoice_findings(invoice_id: str, lang: str = "en", conn: sqlite3.Connection = Depends(get_conn)):
     inv = _invoice_or_404(conn, invoice_id)
     out = invoice_summary(conn, inv, lang)
@@ -432,7 +444,7 @@ def vendor_call_result(body: VendorCallResult, x_nipta_relay_secret: str | None 
     return {"ok": True}
 
 
-@app.get("/api/invoices/{invoice_id}/source")
+@app.get("/api/invoices/{invoice_id}/source", dependencies=[Depends(require_session)])
 def invoice_source(invoice_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     inv = _invoice_or_404(conn, invoice_id)
     doc = db.row(conn, "SELECT * FROM documents WHERE document_id=?", (inv["document_id"],))
@@ -463,7 +475,7 @@ def resolve_finding(finding_id: str, body: ResolveFindingRequest, operator: str 
     return invoice_summary(conn, _invoice_or_404(conn, f["invoice_id"]))
 
 
-@app.get("/api/vendors/{vendor_id}/verification")
+@app.get("/api/vendors/{vendor_id}/verification", dependencies=[Depends(require_session)])
 def vendor_verification(vendor_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     v = db.row(conn, "SELECT * FROM vendors WHERE vendor_id=?", (vendor_id,))
     if v is None:
@@ -517,7 +529,7 @@ def verify_vendor(vendor_id: str, operator: str = Depends(require_session),
     return vendor_verification(vendor_id, conn)
 
 
-@app.get("/api/vendors")
+@app.get("/api/vendors", dependencies=[Depends(require_session)])
 def get_vendors(conn: sqlite3.Connection = Depends(get_conn)):
     return vendors.list_vendors(conn)
 
@@ -539,7 +551,7 @@ def approve_vendor(body: vendors.VendorCreate, operator: str = Depends(require_s
             "vendor": next(v for v in vendors.list_vendors(conn) if v["vendor_id"] == created["vendor_id"])}
 
 
-@app.get("/api/payment-plan")
+@app.get("/api/payment-plan", dependencies=[Depends(require_session)])
 def payment_plan(batch_id: str, cash_budget_paise: int | None = Query(default=None, ge=0),
                  conn: sqlite3.Connection = Depends(get_conn)):
     budget = cash_budget_paise if cash_budget_paise is not None else int(db.get_setting(conn, "cash_budget_paise",
@@ -554,7 +566,7 @@ def create_proposal(invoice_id: str, lang: str = "en", operator: str = Depends(r
     return _proposal_view(conn, p["proposal_id"], lang)
 
 
-@app.get("/api/proposals/{proposal_id}")
+@app.get("/api/proposals/{proposal_id}", dependencies=[Depends(require_session)])
 def get_proposal(proposal_id: str, lang: str = "en", conn: sqlite3.Connection = Depends(get_conn)):
     return _proposal_view(conn, proposal_id, lang)
 
@@ -573,7 +585,7 @@ def execute_proposal(proposal_id: str, lang: str = "en", operator: str = Depends
     return _proposal_view(conn, proposal_id, lang)
 
 
-@app.get("/api/proposals/{proposal_id}/status")
+@app.get("/api/proposals/{proposal_id}/status", dependencies=[Depends(require_session)])
 def proposal_status(proposal_id: str, lang: str = "en", conn: sqlite3.Connection = Depends(get_conn)):
     attempt = db.row(conn, "SELECT attempt_id FROM payment_attempts WHERE proposal_id=?", (proposal_id,))
     if attempt:
@@ -663,7 +675,7 @@ def speech(body: TTSRequest, operator: str = Depends(require_session), conn: sql
     return Response(content=audio, media_type="audio/wav")
 
 
-@app.get("/api/audit")
+@app.get("/api/audit", dependencies=[Depends(require_session)])
 def audit_log(batch_id: str | None = None, object_id: str | None = None, limit: int = Query(200, le=1000),
               conn: sqlite3.Connection = Depends(get_conn)):
     sql = "SELECT * FROM audit_events"
