@@ -161,11 +161,11 @@ async function refreshBatch() {
   if (!state.batchId) return;
   const b = await api(`/api/batches/${state.batchId}?${lq()}`);
   state.batch = b;
-  const groups = [["BLOCKED", "bad", "Blocked"], ["REVIEW", "warn", "Needs a check"], ["ELIGIBLE", "ok", "Safe to pay"]];
+  const groups = [["BLOCKED", "bad", "Blocked", "Blocked"], ["REVIEW", "warn", "Needs a check", "Check"], ["ELIGIBLE", "ok", "Safe to pay", "Safe"]];
   const sum = (list) => list.reduce((t, i) => t + (i.stated_total_paise || 0), 0);
   const by = (k) => b.invoices.filter((i) => i.decision === k);
-  $("#batchSummary").innerHTML = groups.map(([k, cls, label]) => `
-    <div class="stat"><span class="label"><span class="dot ${cls}"></span>${esc(label.split(" ")[0])}</span>
+  $("#batchSummary").innerHTML = groups.map(([k, cls, label, short]) => `
+    <div class="stat"><span class="label"><span class="dot ${cls}"></span>${esc(short)}</span>
       <div class="n">${by(k).length}</div><div class="amt">${by(k).length ? inr(sum(by(k))) : "—"}</div></div>`).join("");
   const bill = (i) => {
     const open = i.findings.find((f) => f.status === "OPEN");
@@ -175,7 +175,7 @@ async function refreshBatch() {
     return `<button class="bill ${i.invoice_id === state.selected ? "selected" : ""}" data-id="${esc(i.invoice_id)}">
       <span class="ini" aria-hidden="true">${esc(ini)}</span>
       <span class="name">${esc(i.vendor || "Unknown vendor")}</span><span class="amt">${inr(i.stated_total_paise)}</span>
-      <span class="why">${esc(why)}</span></button>`;
+      <span class="why"><span class="tag ${DECISION_CLASS[i.decision]}">${esc(i.decision_label)}</span> ${esc(why)}</span></button>`;
   };
   $("#billList").innerHTML = groups.filter(([k]) => by(k).length).map(([k, cls, label]) => `
     <div class="group-head"><span class="dot ${cls}"></span><span class="label">${esc(label)}</span><span class="amt">${inr(sum(by(k)))}</span></div>
@@ -185,9 +185,12 @@ async function refreshBatch() {
     + (b.unprocessed_documents.length ? `<p class="small muted">${b.unprocessed_documents.length} not yet checked. Press Run checks.</p>` : "");
   document.querySelectorAll("#billList .bill").forEach((el) => el.onclick = () => showInvoice(el.dataset.id));
   const hasBills = b.invoices.length > 0;
+  // Next step gets the green key: add bills, then run checks; after that the Today list leads.
+  $("label.file-btn").classList.toggle("primary", !hasBills && !b.unprocessed_documents.length);
+  $("#processBatch").classList.toggle("primary", b.unprocessed_documents.length > 0);
   $("#welcome").classList.toggle("has-bills", hasBills);
   $("#introText").hidden = hasBills;
-  $("#sixHead").hidden = !hasBills;
+  $("#sixDetails").open = false;
   if (!hasBills) $("#today").innerHTML = "";
   $("#fridayTile").textContent = `${b.invoices.length} bills`;
   $("#cashTile").textContent = inr(b.cash_budget_paise);
@@ -328,7 +331,7 @@ async function showInvoice(id) {
         <span class="chip ${DECISION_CLASS[d.decision]}">${esc(d.decision_label)}</span>
         <a class="small" href="/api/invoices/${encodeURIComponent(d.invoice_id)}/source" target="_blank" rel="noopener">Original document</a>
         <button class="secondary" id="rerun" data-auth>Re-run checks</button>
-        ${d.decision === "ELIGIBLE" ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
+        ${d.decision === "ELIGIBLE" && !d.proposal ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
       </div>
     </div>
     ${verdictHtml}
@@ -355,6 +358,7 @@ async function showInvoice(id) {
     ${d.notes ? `<h3>Notes on document</h3><div class="note-data"><div class="small">${esc(d.notes_label)}</div>${esc(d.notes)}</div>` : ""}
   `;
   renderSession();
+  if (window.innerWidth < 900) el.scrollIntoView({ block: "start" });
   el.querySelectorAll("[data-resolve]").forEach((b) => b.onclick = async () => {
     const reason = prompt("Why is this finding OK? (recorded in the audit log)");
     if (!reason) return;
@@ -370,6 +374,7 @@ async function showInvoice(id) {
     $("#approval").hidden = true;
     $("#welcome").hidden = false;
     document.querySelectorAll("#billList .bill").forEach((el) => el.classList.remove("selected"));
+    $("#welcome").scrollIntoView({ block: "start" });
   };
   const callBtn = $("#vendorCall");
   if (callBtn) callBtn.onclick = async () => {
@@ -428,16 +433,17 @@ function renderProposal(p) {
       ${t.applied ? "" : " · ignored (would move backwards)"} ${t.note ? "· " + esc(t.note) : ""} · ${new Date(t.created_at * 1000).toLocaleTimeString()}</span></span></li>`).join("");
   el.innerHTML = `
     <div class="panel-head">
-      <h2>Approval card</h2>
+      <h2>Approve this payment</h2>
       <span class="chip ${modeCls}">${esc(modeText)}</span>
     </div>
-    <div class="grid2">
-      <div>
-        <div class="muted small">Pay ${esc(p.vendor)} · invoice ${esc(p.invoice_number)} (${esc(p.invoice_id)})</div>
-        <div class="amount">${esc(p.amount_display)}</div>
-        <div>to saved account <strong class="mono">${esc(p.beneficiary_display)}</strong></div>
-        <div class="small"><span class="chip ${p.verification_label.startsWith("Live") ? "ok" : "muted"}">${esc(p.verification_label)}</span></div>
-      </div>
+    <div class="pay-focus">
+      <div class="small muted" style="font-weight:700">Pay</div>
+      <div class="payee">${esc(p.vendor)}</div>
+      <div class="amount">${esc(p.amount_display)}</div>
+      <div>to saved account <strong class="mono">${esc(p.beneficiary_display)}</strong> · invoice ${esc(p.invoice_number)}</div>
+      <div class="warn-row"><span class="chip ${p.verification_label.startsWith("Live") ? "ok" : "warn"}">${esc(p.verification_label)}</span></div>
+    </div>
+    <details class="audit"><summary>Audit details</summary>
       <dl class="kv small">
         <dt>Proposal</dt><dd class="mono">${esc(p.proposal_id)}</dd>
         <dt>State</dt><dd><strong>${esc(p.state)}</strong></dd>
@@ -448,7 +454,7 @@ function renderProposal(p) {
         ${a && a.cf_transfer_id ? `<dt>Provider ref</dt><dd class="mono">${esc(a.cf_transfer_id)}</dd>` : ""}
         <dt>Ledger posted</dt><dd>${p.ledger_posted ? "Yes (one settlement)" : "No"}</dd>
       </dl>
-    </div>
+    </details>
     <p><strong>${esc(p.status_text)}</strong></p>
     <div class="btn-row">
       ${p.state === "READY_FOR_APPROVAL" ? `<button id="approveBtn" data-auth>Approve ${esc(p.amount_display)}</button>` : ""}
@@ -461,6 +467,7 @@ function renderProposal(p) {
     ${p.postings && p.postings.length ? `<h3>Postings</h3><ul>${p.postings.map((x) => `<li>${esc(x.kind)} ${inr(x.amount_paise)}</li>`).join("")}</ul>` : ""}
   `;
   renderSession();
+  el.scrollIntoView({ block: "start", behavior: "smooth" });
   const approveBtn = $("#approveBtn");
   if (approveBtn) approveBtn.onclick = async () => {
     try {
