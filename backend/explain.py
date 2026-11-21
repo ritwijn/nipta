@@ -132,6 +132,30 @@ def _lang(lang: str | None) -> str:
     return lang if lang in ("en", "kn", "hi") else "en"
 
 
+VENDOR_CALL = {
+    "REQUESTED": {
+        "en": "Calling the vendor on the number we have on file.",
+        "kn": "ದಾಖಲೆಯಲ್ಲಿರುವ ಸಂಖ್ಯೆಗೆ ಮಾರಾಟಗಾರರಿಗೆ ಕರೆ ಮಾಡಲಾಗುತ್ತಿದೆ.",
+        "hi": "रिकॉर्ड में दर्ज नंबर पर विक्रेता को कॉल किया जा रहा है।"},
+    "CONFIRMED_CHANGE": {
+        "en": "Vendor says the new account is theirs. Still blocked: verify it with the bank and update the saved account before paying.",
+        "kn": "ಹೊಸ ಖಾತೆ ತಮ್ಮದೇ ಎಂದು ಮಾರಾಟಗಾರರು ಹೇಳುತ್ತಾರೆ. ಇನ್ನೂ ತಡೆಹಿಡಿಯಲಾಗಿದೆ: ಪಾವತಿಸುವ ಮೊದಲು ಬ್ಯಾಂಕ್‌ನಲ್ಲಿ ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಉಳಿಸಿದ ಖಾತೆಯನ್ನು ನವೀಕರಿಸಿ.",
+        "hi": "विक्रेता कहता है कि नया खाता उसका है। अभी भी रोका गया: भुगतान से पहले बैंक से सत्यापित करें और सहेजा गया खाता अपडेट करें।"},
+    "DENIED_CHANGE": {
+        "en": "Vendor says this account is NOT theirs. Likely fraud: do not pay this invoice.",
+        "kn": "ಈ ಖಾತೆ ತಮ್ಮದಲ್ಲ ಎಂದು ಮಾರಾಟಗಾರರು ಹೇಳುತ್ತಾರೆ. ವಂಚನೆ ಇರಬಹುದು: ಈ ಇನ್‌ವಾಯ್ಸ್‌ಗೆ ಪಾವತಿಸಬೇಡಿ.",
+        "hi": "विक्रेता कहता है कि यह खाता उसका नहीं है। धोखाधड़ी हो सकती है: इस इनवॉइस का भुगतान न करें।"},
+    "NO_ANSWER": {
+        "en": "Vendor did not answer. The invoice stays blocked.",
+        "kn": "ಮಾರಾಟಗಾರರು ಕರೆಗೆ ಉತ್ತರಿಸಲಿಲ್ಲ. ಇನ್‌ವಾಯ್ಸ್ ತಡೆಹಿಡಿಯಲಾಗಿದೆ.",
+        "hi": "विक्रेता ने जवाब नहीं दिया। इनवॉइस रोका हुआ है।"},
+    "UNCLEAR": {
+        "en": "The call gave no clear answer. The invoice stays blocked.",
+        "kn": "ಕರೆಯಿಂದ ಸ್ಪಷ್ಟ ಉತ್ತರ ಸಿಗಲಿಲ್ಲ. ಇನ್‌ವಾಯ್ಸ್ ತಡೆಹಿಡಿಯಲಾಗಿದೆ.",
+        "hi": "कॉल से स्पष्ट जवाब नहीं मिला। इनवॉइस रोका हुआ है।"},
+}
+
+
 def explain_finding(code: str, evidence: dict, matched_invoice_id: str | None, lang: str = "en") -> str:
     lang = _lang(lang)
     tmpl = FINDING.get(code, {}).get(lang) or FINDING.get(code, {}).get("en") or code

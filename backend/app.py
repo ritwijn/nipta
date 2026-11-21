@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import sqlite3
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,13 +17,13 @@ from fastapi.staticfiles import StaticFiles
 from . import agent, db, explain, pipeline, runtime_lock
 from .config import capability_report, get_settings
 from .errors import NiptaError
-from .integrations import cashfree_secureid, sarvam
+from .integrations import cashfree_secureid, relay, sarvam
 from .integrations.cashfree_payouts import ProviderRejected, ProviderUncertain
 from .payments import approval, execution, status
 from .rules import beneficiaries, priority
 from .rules.normalize import format_inr, mask_account
 from .schemas import (AgentMessageRequest, ApproveRequest, ProviderEventRequest, ResolveFindingRequest,
-                      SessionRequest, StructuredInvoiceRequest, TTSRequest)
+                      SessionRequest, StructuredInvoiceRequest, TTSRequest, VendorCallResult)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -353,7 +354,82 @@ def invoice_findings(invoice_id: str, lang: str = "en", conn: sqlite3.Connection
         "saved_beneficiary": f"{ben['beneficiary_id']} v{ben['version']}" if ben else None,
     }
     out["explanation"] = explain.explain_invoice(conn, invoice_id, lang)
+    out["vendor_call"] = _vendor_call(conn, invoice_id, lang)
     return out
+
+
+# ---- vendor call (Relay): ask the vendor, on the number on file, whether a changed account is theirs ----
+
+CALL_OUTCOMES = {"CONFIRMED_CHANGE", "DENIED_CHANGE", "NO_ANSWER", "UNCLEAR"}
+
+
+def _vendor_call(conn, invoice_id: str, lang: str) -> dict | None:
+    req = db.row(conn, "SELECT dedupe_key FROM audit_events WHERE object_id=? AND action='VENDOR_CALL_REQUESTED'"
+                       " ORDER BY event_id DESC LIMIT 1", (invoice_id,))
+    if not req:
+        return None
+    res = db.row(conn, "SELECT detail_json FROM audit_events WHERE dedupe_key=?", (f"{req['dedupe_key']}:result",))
+    detail = json.loads(res["detail_json"]) if res else {}
+    st = detail.get("outcome", "REQUESTED")
+    return {"call_id": req["dedupe_key"], "status": st, "text": explain.VENDOR_CALL[st][explain._lang(lang)],
+            "summary": detail.get("summary")}
+
+
+@app.post("/api/invoices/{invoice_id}/vendor-call")
+def start_vendor_call(invoice_id: str, lang: str = "en", operator: str = Depends(require_session),
+                      conn: sqlite3.Connection = Depends(get_conn)):
+    s = get_settings()
+    if not s.relay_live:
+        raise NiptaError("RELAY_UNAVAILABLE", "Relay vendor call is not configured", 409)
+    inv = _invoice_or_404(conn, invoice_id)
+    f = db.row(conn, "SELECT evidence_json FROM findings WHERE invoice_id=? AND code='CHANGED_BENEFICIARY'"
+                     " AND status='OPEN'", (invoice_id,))
+    if not f:
+        raise NiptaError("NO_BANK_CHANGE", "Vendor calls are only for invoices with changed bank details", 409)
+    v = db.row(conn, "SELECT display_name, phone FROM vendors WHERE vendor_id=?", (inv["vendor_id"],))
+    # Only the registry number (or the demo override), never a number printed on the invoice.
+    phone = s.demo_call_phone or (v or {}).get("phone")
+    if not phone:
+        raise NiptaError("NO_PHONE_ON_FILE", "No phone number on file for this vendor", 409)
+    ev = json.loads(f["evidence_json"])
+    call_id = f"CALL_{uuid.uuid4().hex[:16]}"
+    try:
+        relay.start_vendor_call({  # shape follows Relay's sample event: order_id, amount, customer{...}
+            "event": "vendor_bank_change_check",
+            "order_id": call_id,
+            "amount": inv["stated_total_paise"] / 100 if inv["stated_total_paise"] is not None else None,
+            "customer": {"name": v["display_name"], "phone": phone, "language": inv["language"] or "en-IN"},
+            "invoice_number": inv["invoice_number_raw"],
+            "saved_account": ev.get("saved_account"),
+            "printed_account": ev.get("printed_account"),
+            "callback_url": f"{s.public_base_url}/api/relay/vendor-call-result",
+        })
+    except Exception as exc:
+        raise NiptaError("RELAY_ERROR", f"Relay did not accept the call: {type(exc).__name__}", 502)
+    with db.immediate(conn):
+        db.audit(conn, operator, "VENDOR_CALL_REQUESTED", invoice_id,
+                 {"phone_last4": phone[-4:], "demo_phone": bool(s.demo_call_phone)},
+                 dedupe_key=call_id, batch_id=inv["batch_id"])
+    return _vendor_call(conn, invoice_id, lang)
+
+
+@app.post("/api/relay/vendor-call-result")
+def vendor_call_result(body: VendorCallResult, x_nipta_relay_secret: str | None = Header(default=None),
+                       conn: sqlite3.Connection = Depends(get_conn)):
+    secret = get_settings().relay_callback_secret
+    if not secret or not hmac.compare_digest((x_nipta_relay_secret or "").encode(), secret.encode()):
+        raise HTTPException(401, "Bad Relay secret")
+    req = db.row(conn, "SELECT object_id, batch_id FROM audit_events WHERE action='VENDOR_CALL_REQUESTED'"
+                       " AND dedupe_key=?", (body.call_id,))
+    if not req:
+        raise NiptaError("NOT_FOUND", "Unknown call_id", 404)
+    outcome = body.outcome.strip().upper().replace(" ", "_")
+    with db.immediate(conn):  # replays are ignored by the dedupe key
+        db.audit(conn, "relay", "VENDOR_CALL_RESULT", req["object_id"],
+                 {"outcome": outcome if outcome in CALL_OUTCOMES else "UNCLEAR", "summary": body.summary},
+                 dedupe_key=f"{body.call_id}:result", batch_id=req["batch_id"])
+    # Information only: no decision changes here. The invoice stays BLOCKED whatever the vendor says.
+    return {"ok": True}
 
 
 @app.get("/api/invoices/{invoice_id}/source")

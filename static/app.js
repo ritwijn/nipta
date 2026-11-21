@@ -256,6 +256,18 @@ async function showInvoice(id) {
       <p>${esc(f.explanation)}</p>
       <details><summary>Evidence</summary><pre>${esc(JSON.stringify(f.evidence, null, 2))}</pre></details>
     </div>`).join("") : `<p class="muted">No findings.</p>`;
+  // Vendor call (Relay): only offered when the printed bank account differs from the saved one.
+  const vc = d.vendor_call;
+  const callHtml = d.findings.some((f) => f.code === "CHANGED_BENEFICIARY" && f.status !== "RESOLVED") ? `
+    <h3>Vendor call</h3>
+    <div class="finding">
+      <div class="row">
+        <span>${vc ? `<span class="chip ${vc.status === "DENIED_CHANGE" ? "bad" : "warn"}">${esc(vc.status)}</span> ${esc(vc.text)}`
+                   : `<span class="muted">Ask the vendor, on the number we have on file, whether this account is theirs.</span>`}</span>
+        <button class="secondary small" id="vendorCall" data-auth>${vc ? "Call again" : "Call vendor"}</button>
+      </div>
+      ${vc && vc.summary ? `<p class="small">${esc(vc.summary)}</p>` : ""}
+    </div>` : "";
   const lines = d.lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${l.quantity_milli === null ? "—" : l.quantity_milli / 1000}</td>
     <td class="num">${inr(l.unit_price_paise)}</td><td class="num">${inr(l.line_total_paise)}</td>
     <td class="num ${l.computed_total_paise !== null && l.computed_total_paise !== l.line_total_paise ? "bad" : ""}">${inr(l.computed_total_paise)}</td></tr>`).join("");
@@ -286,6 +298,7 @@ async function showInvoice(id) {
       </dl>
     </div>
     <h3>Findings</h3>${findingsHtml}
+    ${callHtml}
     ${lines ? `<h3>Line items</h3><div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line total</th><th class="num">Recomputed</th></tr></thead><tbody>${lines}</tbody></table></div>` : ""}
     ${d.notes ? `<h3>Notes on document</h3><div class="note-data"><div class="small">${esc(d.notes_label)}</div>${esc(d.notes)}</div>` : ""}
   `;
@@ -299,6 +312,13 @@ async function showInvoice(id) {
       showInvoice(id);
     } catch (err) { toast(err.message); }
   });
+  const callBtn = $("#vendorCall");
+  if (callBtn) callBtn.onclick = async () => {
+    try { await api(`/api/invoices/${id}/vendor-call?${lq()}`, { method: "POST" }); toast("Calling vendor"); showInvoice(id); }
+    catch (err) { toast(err.message); }
+  };
+  // Poll until Relay posts the call result.
+  if (vc && vc.status === "REQUESTED") setTimeout(() => { if (state.selected === id) showInvoice(id); }, 5000);
   $("#rerun").onclick = async (ev) => {
     try {
       const inv = await busy(ev.currentTarget, "Checking…", () => api(`/api/invoices/${id}/checks`, { method: "POST" }));

@@ -63,6 +63,11 @@ class Settings:
     cashfree_secureid_client_secret: str | None = None
     cashfree_secureid_api_version: str | None = None
 
+    relay_vendor_call_url: str | None = None   # Relay agent's inbound webhook URL
+    relay_callback_secret: str | None = None   # Relay sends this back in x-nipta-relay-secret
+    public_base_url: str | None = None         # tunnel URL Relay can reach, e.g. https://x.trycloudflare.com
+    demo_call_phone: str | None = None         # demo only: route every vendor call to this phone
+
     min_field_confidence: float = 0.85
     arith_tolerance_paise: int = 0
     verification_max_age_days: int = 30
@@ -100,6 +105,10 @@ class Settings:
     def vision_live(self) -> bool:
         return bool(self.sarvam_vision_enabled and self.sarvam_api_key
                     and self.sarvam_extraction_mode in ("doc_ai", "chat"))
+
+    @property
+    def relay_live(self) -> bool:
+        return bool(self.relay_vendor_call_url and self.relay_callback_secret and self.public_base_url)
 
     @property
     def stt_live(self) -> bool:
@@ -140,6 +149,10 @@ def load_settings() -> Settings:
         cashfree_secureid_client_id=_str("CASHFREE_SECUREID_CLIENT_ID"),
         cashfree_secureid_client_secret=_str("CASHFREE_SECUREID_CLIENT_SECRET"),
         cashfree_secureid_api_version=_str("CASHFREE_SECUREID_API_VERSION"),
+        relay_vendor_call_url=_str("RELAY_VENDOR_CALL_URL"),
+        relay_callback_secret=_str("RELAY_CALLBACK_SECRET"),
+        public_base_url=(_str("NIPTA_PUBLIC_URL") or "").rstrip("/") or None,
+        demo_call_phone=_str("NIPTA_DEMO_CALL_PHONE"),
         min_field_confidence=_float("NIPTA_MIN_FIELD_CONFIDENCE", 0.85),
         arith_tolerance_paise=_int("NIPTA_ARITH_TOLERANCE_PAISE", 0),
         verification_max_age_days=_int("NIPTA_VERIFICATION_MAX_AGE_DAYS", 30),
@@ -195,6 +208,7 @@ def capability_report(s: Settings | None = None) -> dict:
         "cashfree_payouts": mode(s.payouts_live, s.cashfree_payouts_enabled, "OFF_SIMULATED"),
         "cashfree_webhooks": "SIGNATURE_CHECK_READY" if s.cashfree_webhook_secret else "OFF_POLLING_ONLY",
         "cashfree_secure_id": mode(s.secureid_live, s.cashfree_secureid_enabled, "OFF_SEEDED_MOCK"),
+        "relay_vendor_call": "LIVE" if s.relay_live else "OFF",
         "require_live_verification": s.require_live_verification,
         "test_mode": s.test_mode,
     }

@@ -85,6 +85,12 @@ class AgentMessageRequest(BaseModel):
     language: Language = "en"
 
 
+class VendorCallResult(BaseModel):
+    call_id: str = Field(min_length=1, max_length=64)
+    outcome: str = Field(max_length=40)  # free text from Relay; normalised in the route
+    summary: str | None = Field(default=None, max_length=1000)
+
+
 class TTSRequest(BaseModel):
     kind: Literal["invoice", "proposal"]
     object_id: str
