@@ -205,3 +205,27 @@ CREATE TABLE IF NOT EXISTS settings (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
+
+-- A person's request to change a vendor's saved bank account. Entered by an operator after confirming
+-- with the firm outside the invoice; never created from invoice text. Approval creates a new beneficiary version.
+CREATE TABLE IF NOT EXISTS bank_change_requests (
+  request_id           TEXT PRIMARY KEY,
+  vendor_id            TEXT NOT NULL REFERENCES vendors(vendor_id),
+  beneficiary_id       TEXT NOT NULL,
+  from_version         INTEGER NOT NULL,
+  account_holder_name  TEXT NOT NULL,
+  bank_account_number  TEXT NOT NULL,
+  ifsc                 TEXT NOT NULL,
+  confirmation_note    TEXT NOT NULL,
+  account_status       TEXT,
+  name_match_result    TEXT,
+  name_at_bank         TEXT,
+  provider_ref         TEXT,
+  verified_at          INTEGER NOT NULL,
+  state                TEXT NOT NULL CHECK (state IN ('PENDING_APPROVAL','VERIFICATION_FAILED','APPROVED','REJECTED')),
+  requested_by         TEXT NOT NULL,
+  decided_by           TEXT,
+  decided_reason       TEXT,
+  decided_at           INTEGER,
+  created_at           INTEGER NOT NULL
+);

@@ -9,7 +9,8 @@ Contract (official reference, checked 21 Nov 2026):
            (DIRECT_MATCH | GOOD_PARTIAL_MATCH | MODERATE_PARTIAL_MATCH | POOR_PARTIAL_MATCH | NO_MATCH)
 
 A VALID account with a good name match proves the account exists under a similar name. It does not prove
-the vendor authorized a change of account, so it never lifts a CHANGED_BENEFICIARY block.
+the vendor authorized a change of account, so it never lifts a CHANGED_BENEFICIARY block by itself. A change
+of saved account needs a person: see verification.request_change / approve_change.
 (The official cashfree_verification SDK pins pydantic<2 and has no bank-account method, hence raw httpx.)
 """
 from __future__ import annotations

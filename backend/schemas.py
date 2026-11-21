@@ -74,6 +74,17 @@ class ResolveFindingRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+class BankChangeRequest(BaseModel):
+    account_number: str = Field(min_length=9, max_length=40)
+    ifsc: str = Field(min_length=11, max_length=11)
+    account_holder_name: str | None = Field(default=None, max_length=200)
+    confirmation_note: str = Field(min_length=5, max_length=500)  # how the change was confirmed with the firm
+
+
+class RejectBankChangeRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
 class StructuredInvoiceRequest(BaseModel):
     batch_id: str | None = None
     extraction: ExtractionRaw

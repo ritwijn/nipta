@@ -15,17 +15,18 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import agent, db, explain, pipeline, runtime_lock, vendors
+from . import agent, db, explain, pipeline, runtime_lock, vendors, verification
 from .config import capability_report, get_settings
 from .errors import NiptaError
-from .integrations import cashfree_secureid, relay, sarvam
+from .integrations import relay, sarvam
 from .integrations.cashfree_payouts import ProviderRejected, ProviderUncertain
 from .payments import approval, execution, status
 from .rules import beneficiaries, priority
 from .rules import normalize as N
 from .rules.normalize import format_inr, mask_account
-from .schemas import (AgentMessageRequest, ApproveRequest, ProviderEventRequest, ResolveFindingRequest,
-                      SessionRequest, StructuredInvoiceRequest, TTSRequest, VendorCallResult)
+from .schemas import (AgentMessageRequest, ApproveRequest, BankChangeRequest, ProviderEventRequest,
+                      RejectBankChangeRequest, ResolveFindingRequest, SessionRequest, StructuredInvoiceRequest,
+                      TTSRequest, VendorCallResult)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -508,26 +509,10 @@ def vendor_verification(vendor_id: str, conn: sqlite3.Connection = Depends(get_c
 
 def _verify_saved_beneficiary(conn, vendor_id: str, operator: str) -> None:
     """Run Secure ID bank-account verification on the vendor's SAVED beneficiary (never invoice claims)."""
-    ben = beneficiaries.active_beneficiary(conn, vendor_id)
-    if ben is None:
-        raise NiptaError("NO_APPROVED_BENEFICIARY", "Vendor has no saved beneficiary", 409)
     try:
-        r = cashfree_secureid.verify_bank_account(ben["bank_account_number"], ben["ifsc"], ben["account_holder_name"])
+        verification.verify_saved_account(conn, vendor_id, operator)
     except (ProviderUncertain, ProviderRejected) as exc:
         raise NiptaError("SECURE_ID_ERROR", str(exc), 502)
-    with db.immediate(conn):
-        conn.execute(
-            "INSERT INTO beneficiary_verifications(verification_id, beneficiary_id, beneficiary_version, source,"
-            " account_status, name_match_result, name_at_bank, provider_ref, verified_at)"
-            " VALUES (?,?,?,'LIVE_SECURE_ID_BAV',?,?,?,?,?)",
-            (db.new_id("ver"), ben["beneficiary_id"], ben["version"], r.account_status, r.name_match_result,
-             r.name_at_bank, r.reference_id, db.now()),
-        )
-        db.audit(conn, operator, "BENEFICIARY_VERIFIED", vendor_id,
-                 {"source": "LIVE_SECURE_ID_BAV", "account_status": r.account_status,
-                  "account_status_code": r.account_status_code, "name_match_result": r.name_match_result,
-                  "name_match_score": r.name_match_score, "name_at_bank": r.name_at_bank,
-                  "bank_name": r.bank_name, "reference_id": r.reference_id, "request_id": r.request_id})
 
 
 @app.post("/api/vendors/{vendor_id}/verify")
@@ -575,16 +560,50 @@ def approve_vendor(body: vendors.VendorCreate, operator: str = Depends(require_s
                    conn: sqlite3.Connection = Depends(get_conn)):
     """Operator approves a new vendor and its bank account (typed twice). Re-checks unresolved invoices."""
     created = vendors.approve_vendor(conn, body, operator)
-    verification = "NOT_VERIFIED"
+    verified = "NOT_VERIFIED"
     if get_settings().secureid_live:
         try:
             _verify_saved_beneficiary(conn, created["vendor_id"], operator)
-            verification = "LIVE_SECURE_ID_BAV"
+            verified = "LIVE_SECURE_ID_BAV"
         except NiptaError as exc:
-            verification = f"VERIFICATION_ERROR: {exc.code}"
+            verified = f"VERIFICATION_ERROR: {exc.code}"
     rechecked = vendors.recheck_unresolved(conn)
-    return {**created, "verification": verification, "rechecked_invoices": rechecked,
+    return {**created, "verification": verified, "rechecked_invoices": rechecked,
             "vendor": next(v for v in vendors.list_vendors(conn) if v["vendor_id"] == created["vendor_id"])}
+
+
+def _vendor_or_404(conn, vendor_id: str) -> dict:
+    v = db.row(conn, "SELECT * FROM vendors WHERE vendor_id=?", (vendor_id,))
+    if v is None:
+        raise NiptaError("NOT_FOUND", "Vendor not found", 404)
+    return v
+
+
+@app.get("/api/vendors/{vendor_id}/bank-changes")
+def list_bank_changes(vendor_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    _vendor_or_404(conn, vendor_id)
+    return {"vendor_id": vendor_id, "secure_id_live": get_settings().secureid_live,
+            "requests": verification.list_requests(conn, vendor_id)}
+
+
+@app.post("/api/vendors/{vendor_id}/bank-changes")
+def request_bank_change(vendor_id: str, body: BankChangeRequest, operator: str = Depends(require_session),
+                        conn: sqlite3.Connection = Depends(get_conn)):
+    _vendor_or_404(conn, vendor_id)
+    return verification.request_change(conn, vendor_id, body.account_number, body.ifsc, body.account_holder_name,
+                                       body.confirmation_note, operator)
+
+
+@app.post("/api/bank-changes/{request_id}/approve")
+def approve_bank_change(request_id: str, operator: str = Depends(require_session),
+                        conn: sqlite3.Connection = Depends(get_conn)):
+    return verification.approve_change(conn, request_id, operator)
+
+
+@app.post("/api/bank-changes/{request_id}/reject")
+def reject_bank_change(request_id: str, body: RejectBankChangeRequest, operator: str = Depends(require_session),
+                       conn: sqlite3.Connection = Depends(get_conn)):
+    return verification.reject_change(conn, request_id, operator, body.reason)
 
 
 @app.get("/api/payment-plan")
