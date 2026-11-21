@@ -86,11 +86,17 @@ class Settings:
     upload_dir: str = "uploads"
 
     @property
+    def twofa_key_ok(self) -> bool:
+        """No 2FA key configured, or the configured key file exists. A missing file must not reach dispatch."""
+        return not self.cashfree_2fa_public_key_path or Path(self.cashfree_2fa_public_key_path).is_file()
+
+    @property
     def payouts_live(self) -> bool:
         return bool(
             self.cashfree_payouts_enabled
             and self.cashfree_payouts_client_id
             and self.cashfree_payouts_client_secret
+            and self.twofa_key_ok
         )
 
     @property
@@ -99,6 +105,7 @@ class Settings:
             self.cashfree_secureid_enabled
             and self.cashfree_secureid_client_id
             and self.cashfree_secureid_client_secret
+            and self.twofa_key_ok
         )
 
     @property
@@ -209,6 +216,8 @@ def capability_report(s: Settings | None = None) -> dict:
         "cashfree_webhooks": "SIGNATURE_CHECK_READY" if s.cashfree_webhook_secret else "OFF_POLLING_ONLY",
         "cashfree_secure_id": mode(s.secureid_live, s.cashfree_secureid_enabled, "OFF_SEEDED_MOCK"),
         "relay_vendor_call": "LIVE" if s.relay_live else "OFF",
+        "cashfree_2fa_signature": ("ON" if s.cashfree_2fa_public_key_path and s.twofa_key_ok
+                                   else "KEY_FILE_MISSING" if s.cashfree_2fa_public_key_path else "OFF"),
         "require_live_verification": s.require_live_verification,
         "test_mode": s.test_mode,
     }

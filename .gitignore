@@ -8,3 +8,4 @@ nipta.db-*
 uploads/
 .DS_Store
 nipta.db.lock
+secrets/

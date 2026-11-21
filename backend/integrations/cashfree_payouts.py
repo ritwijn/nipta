@@ -17,6 +17,7 @@ from pathlib import Path
 import httpx
 
 from ..config import get_settings
+from . import cashfree_auth
 from .http import client
 
 API_VERSION = "2024-01-01"
@@ -66,29 +67,15 @@ def cf_signature() -> str | None:
     s = get_settings()
     if not s.cashfree_2fa_public_key_path:
         return None
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import padding
-
-    key = serialization.load_pem_public_key(Path(s.cashfree_2fa_public_key_path).read_bytes())
-    message = f"{s.cashfree_payouts_client_id}.{int(time.time())}".encode()
-    encrypted = key.encrypt(  # type: ignore[union-attr]
-        message, padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA1()), algorithm=hashes.SHA1(), label=None)
-    )
-    return base64.b64encode(encrypted).decode()
+    return cashfree_auth.cf_signature(s.cashfree_payouts_client_id or "", s.cashfree_2fa_public_key_path)
 
 
 def headers(request_id: str | None = None) -> dict:
     s = get_settings()
-    h = {
-        "x-client-id": s.cashfree_payouts_client_id or "",
-        "x-client-secret": s.cashfree_payouts_client_secret or "",
-        "x-api-version": API_VERSION,
-        "x-request-id": request_id or uuid.uuid4().hex,
-        "Content-Type": "application/json",
-    }
-    sig = cf_signature()
-    if sig:
-        h["x-cf-signature"] = sig
+    h = cashfree_auth.auth_headers(s.cashfree_payouts_client_id or "", s.cashfree_payouts_client_secret or "",
+                                   s.cashfree_2fa_public_key_path or "")
+    h["x-api-version"] = API_VERSION
+    h["x-request-id"] = request_id or uuid.uuid4().hex
     return h
 
 
