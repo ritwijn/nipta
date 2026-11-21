@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ from .integrations import cashfree_secureid, relay, sarvam
 from .integrations.cashfree_payouts import ProviderRejected, ProviderUncertain
 from .payments import approval, execution, status
 from .rules import beneficiaries, priority
+from .rules import normalize as N
 from .rules.normalize import format_inr, mask_account, to_ascii_digits
 from .schemas import (AgentMessageRequest, ApproveRequest, ProviderEventRequest, ResolveFindingRequest,
                       SessionRequest, StructuredInvoiceRequest, TTSRequest, VendorCallResult)
@@ -249,17 +251,7 @@ def list_batches(conn: sqlite3.Connection = Depends(get_conn)):
                          " ORDER BY created_at DESC")
 
 
-@app.post("/api/batches")
-async def create_batch(
-    files: list[UploadFile] | None = File(default=None),
-    fixture: bool = Form(default=False),
-    operator: str = Depends(require_session),
-    conn: sqlite3.Connection = Depends(get_conn),
-):
-    if fixture:
-        with db.immediate(conn):
-            batch_id = pipeline.load_fixture_batch(conn, operator)
-        return {"batch_id": batch_id, "source": "FIXTURE"}
+async def _read_uploads(files: list[UploadFile] | None) -> list[tuple[str, str | None, bytes]]:
     if not files:
         raise NiptaError("NO_FILES", "Upload at least one PDF, PNG or JPEG, or load the fixture batch", 400)
     payloads = []
@@ -270,9 +262,13 @@ async def create_batch(
         except pipeline.UploadRejected as exc:
             raise NiptaError("UPLOAD_REJECTED", f"{f.filename}: {exc}", 400)
         payloads.append((f.filename or "upload", f.content_type, content))
+    return payloads
+
+
+def _ingest_uploads(conn, operator: str, payloads, batch_id: str | None) -> dict:
+    """Store new files in `batch_id` (or a new batch when None). Identical files (same SHA-256) are already
+    stored: point at the existing invoice instead of creating a second payable."""
     with db.immediate(conn):
-        # Identical files (same SHA-256) are already stored: point at the existing invoice instead of creating
-        # a second payable. Only genuinely new files go into a new batch.
         stored, fresh = [], []
         for name, mime, content in payloads:
             existing = db.row(conn, "SELECT d.document_id, d.batch_id, i.invoice_id FROM documents d"
@@ -288,14 +284,42 @@ async def create_batch(
             else:
                 fresh.append((name, mime, content))
         if not fresh:
-            first = stored[0]
-            return {"batch_id": first["existing_batch_id"], "source": "UPLOAD", "documents": stored,
+            return {"batch_id": batch_id or stored[0]["existing_batch_id"], "source": "UPLOAD", "documents": stored,
                     "all_duplicates": True}
-        batch_id = pipeline.create_batch(conn, "UPLOAD", operator)
+        if batch_id is None:
+            batch_id = pipeline.create_batch(conn, "UPLOAD", operator)
         for name, mime, content in fresh:
             doc, _ = pipeline.store_document(conn, batch_id, content, name, mime)
             stored.append({"name": name, "document_id": doc["document_id"], "duplicate_upload": False})
+            db.audit(conn, operator, "DOCUMENT_ADDED", doc["document_id"], {"original_name": name}, batch_id=batch_id)
     return {"batch_id": batch_id, "source": "UPLOAD", "documents": stored, "all_duplicates": False}
+
+
+@app.post("/api/batches")
+async def create_batch(
+    files: list[UploadFile] | None = File(default=None),
+    fixture: bool = Form(default=False),
+    operator: str = Depends(require_session),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    if fixture:
+        with db.immediate(conn):
+            batch_id = pipeline.load_fixture_batch(conn, operator)
+        return {"batch_id": batch_id, "source": "FIXTURE"}
+    return _ingest_uploads(conn, operator, await _read_uploads(files), None)
+
+
+@app.post("/api/batches/{batch_id}/documents")
+async def add_documents(
+    batch_id: str,
+    files: list[UploadFile] | None = File(default=None),
+    operator: str = Depends(require_session),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Add bills to an existing batch, so the list being worked on keeps every earlier bill."""
+    if not db.row(conn, "SELECT 1 AS x FROM batches WHERE batch_id=?", (batch_id,)):
+        raise NiptaError("NOT_FOUND", "Batch not found", 404)
+    return _ingest_uploads(conn, operator, await _read_uploads(files), batch_id)
 
 
 @app.post("/api/batches/{batch_id}/process")
@@ -528,6 +552,30 @@ def verify_vendor(vendor_id: str, operator: str = Depends(require_session),
     for inv in db.rows(conn, "SELECT invoice_id FROM invoices WHERE vendor_id=?", (vendor_id,)):
         pipeline.run_checks(conn, inv["invoice_id"])
     return vendor_verification(vendor_id, conn)
+
+
+@app.get("/api/invoices/{invoice_id}/vendor-draft")
+def vendor_draft(invoice_id: str, operator: str = Depends(require_session),
+                 conn: sqlite3.Connection = Depends(get_conn)):
+    """Prefill for "Approve this vendor" from what the invoice prints (product decision: fill everything).
+
+    Signed-in only, so the full printed account reaches the browser only for an operator about to approve.
+    Printed details remain a claim: the new account still starts unverified (VERIFICATION_MISSING).
+    """
+    inv = _invoice_or_404(conn, invoice_id)
+    printed = inv["claimed_account"]
+    full = None if (not printed or N.is_masked(printed)) else re.sub(r"[^0-9]", "", N.to_ascii_digits(printed))
+    db.audit(conn, operator, "VENDOR_DRAFT_VIEWED", invoice_id,
+             {"printed_account": N.mask_account(printed) if printed else None})
+    return {
+        "invoice_id": invoice_id,
+        "display_name": inv["vendor_name_raw"],
+        "account_holder_name": inv["vendor_name_raw"],
+        "bank_account_number": full,
+        "ifsc": inv["claimed_ifsc"],
+        "printed_account_masked": N.mask_account(printed) if printed else None,
+        "account_is_masked_on_invoice": bool(printed) and full is None,
+    }
 
 
 @app.get("/api/vendors", dependencies=[Depends(require_session)])

@@ -132,7 +132,9 @@ def approve_vendor(conn: sqlite3.Connection, body: VendorCreate, operator: str) 
             "display_name": body.display_name, "aliases": names, "beneficiary_id": beneficiary_id,
             "account": f"••{body.bank_account_number[-4:]}", "ifsc": body.ifsc,
             "source_invoice_id": body.source_invoice_id, "matches_invoice_print": matches_invoice,
-            "note": "Account typed and confirmed by the operator; not copied from the invoice.",
+            "account_source": "MATCHES_INVOICE_PRINT" if matches_invoice else "OPERATOR_ENTERED",
+            "note": "Printed bank details are a claim; the account starts unverified until Secure ID or a "
+                    "recorded review confirms it.",
         })
     return {"vendor_id": vendor_id, "beneficiary_id": beneficiary_id, "matches_invoice_print": matches_invoice}
 
