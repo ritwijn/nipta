@@ -17,6 +17,10 @@ ALLOWED = {
     "COMPLETED": {"REVERSED"},
 }
 TERMINAL = {"COMPLETED", "FAILED", "REVERSED", "SIMULATED"}
+# COMPLETED is terminal for the UI but can still be REVERSED by the bank, so reconciliation keeps polling it.
+FINAL = TERMINAL - {"COMPLETED"}
+# Completed attempts younger than this are re-checked at startup to catch reversals without webhooks.
+REVERSAL_WATCH_SECONDS = 7 * 86400
 PENDING_STATUSES = {"RECEIVED", "QUEUED", "APPROVAL_PENDING", "VALIDATION_PENDING", "PENDING"}
 FAILED_STATUSES = {"FAILED", "REJECTED", "MANUALLY_REJECTED"}
 # Seconds a dispatch may legitimately be in flight before recovery treats it as interrupted.
@@ -113,18 +117,25 @@ def apply_provider_result_locked(conn: sqlite3.Connection, attempt_id: str, stat
                                  cf_transfer_id: str | None = None) -> str:
     a = _attempt(conn, attempt_id)
     conn.execute(
-        "UPDATE payment_attempts SET last_provider_status=?, last_provider_code=?, last_checked_at=?,"
-        " cf_transfer_id=COALESCE(?, cf_transfer_id) WHERE attempt_id=?",
-        (status, status_code, db.now(), cf_transfer_id, attempt_id),
+        "UPDATE payment_attempts SET last_checked_at=?, cf_transfer_id=COALESCE(?, cf_transfer_id) WHERE attempt_id=?",
+        (db.now(), cf_transfer_id, attempt_id),
     )
     target = map_provider_status(status, status_code, a["status"])
     ev = {**evidence, "provider_status": status, "provider_status_code": status_code}
     if a["status"] == "REQUEST_RESERVED":
         # A provider record exists, so the request was accepted before it moved anywhere else.
         transition_locked(conn, attempt_id, "INITIATED", source, {**ev, "note": "provider accepted"})
-        if target in ("INITIATED", "UNKNOWN"):
-            return "APPLIED" if target == "INITIATED" else transition_locked(conn, attempt_id, target, source, ev)
-    return transition_locked(conn, attempt_id, target, source, ev)
+        if target == "INITIATED":
+            result = "APPLIED"
+        else:
+            result = transition_locked(conn, attempt_id, target, source, ev)
+    else:
+        result = transition_locked(conn, attempt_id, target, source, ev)
+    if result != "IGNORED_BACKWARD":
+        # A late, out-of-order event must not overwrite the provider status that moved the attempt.
+        conn.execute("UPDATE payment_attempts SET last_provider_status=?, last_provider_code=? WHERE attempt_id=?",
+                     (status, status_code, attempt_id))
+    return result
 
 
 def apply_provider_status(conn: sqlite3.Connection, attempt_id: str, status: str | None, status_code: str | None,
@@ -140,9 +151,9 @@ def move_to(conn: sqlite3.Connection, attempt_id: str, to: str, source: str, evi
 
 
 def reconcile(conn: sqlite3.Connection, attempt_id: str, startup: bool = False) -> dict:
-    """Bring a non-terminal Cashfree attempt up to date using the status API. Never dispatches."""
+    """Bring a non-final Cashfree attempt (incl. COMPLETED, for reversals) up to date. Never dispatches."""
     a = _attempt(conn, attempt_id)
-    if a["mode"] != "CASHFREE_SANDBOX" or a["status"] in TERMINAL:
+    if a["mode"] != "CASHFREE_SANDBOX" or a["status"] in FINAL:
         return a
     if a["status"] == "REQUEST_RESERVED" and a["dispatch_started_at"] and a["response_recorded_at"] is None:
         if startup or db.now() - a["dispatch_started_at"] > DISPATCH_IN_FLIGHT_SECONDS:
@@ -172,7 +183,8 @@ def reconcile(conn: sqlite3.Connection, attempt_id: str, startup: bool = False) 
 def recover_all(conn: sqlite3.Connection) -> int:
     ids = [r["attempt_id"] for r in conn.execute(
         "SELECT attempt_id FROM payment_attempts WHERE mode='CASHFREE_SANDBOX'"
-        " AND status IN ('REQUEST_RESERVED','INITIATED','PENDING','UNKNOWN')")]
+        " AND (status IN ('REQUEST_RESERVED','INITIATED','PENDING','UNKNOWN')"
+        "      OR (status='COMPLETED' AND created_at>?))", (db.now() - REVERSAL_WATCH_SECONDS,))]
     for attempt_id in ids:
         reconcile(conn, attempt_id, startup=True)
     return len(ids)

@@ -202,8 +202,19 @@ def extract_and_materialize(conn: sqlite3.Connection, batch_id: str, doc: dict) 
     return invoice_id
 
 
+def structured_duplicate_of(conn: sqlite3.Connection, raw: ExtractionRaw) -> str | None:
+    """Invoice already created from this exact structured JSON, if any: the same SHA-256 check file uploads get,
+    so the caller can flag a resubmission (`duplicate_upload`) instead of silently showing the original."""
+    sha = hashlib.sha256(raw.model_dump_json().encode()).hexdigest()
+    r = db.row(conn, "SELECT i.invoice_id FROM documents d JOIN invoices i ON i.document_id=d.document_id"
+                     " WHERE d.sha256=?", (sha,))
+    return r["invoice_id"] if r else None
+
+
 def add_structured_invoice(conn: sqlite3.Connection, batch_id: str, raw: ExtractionRaw, actor: str) -> str:
-    """Judge-curveball path: one invoice as structured JSON, checked exactly like an extracted document."""
+    """Judge-curveball path: one invoice as structured JSON, checked exactly like an extracted document.
+
+    Identical JSON returns the existing invoice (no second payable); use structured_duplicate_of to flag it."""
     content = raw.model_dump_json().encode()
     doc, is_new = store_document(conn, batch_id, content, "structured.json", "application/json")
     if not is_new:

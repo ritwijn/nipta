@@ -65,7 +65,7 @@
           <h2 class="hero">Let's pay this Friday's bills.</h2>
           <p>Drop in the bills. Nipta reads each one, checks it six ways, and tells you what is safe to pay. Money moves only when you approve a payee and an amount.</p>
         </div>
-        <h3 id="sixHead" hidden>Every bill gets six checks</h3>
+        <details id="sixDetails"><summary class="label">How Nipta checks every bill · 6 checks</summary>
         <div class="six">
           <div><b>01</b><span>Adds up</span><p class="muted">Line items add up to the total.</p></div>
           <div><b>02</b><span>Words match</span><p class="muted">Amount in words matches the figure.</p></div>
@@ -74,9 +74,10 @@
           <div><b>05</b><span>Same bank account</span><p class="muted">Pays only your saved account, never one printed on a bill.</p></div>
           <div><b>06</b><span>Name confirmed</span><p class="muted">The bank confirms the account holder's name.</p></div>
         </div>
+        </details>
       </div>
-      <div id="detail" class="panel" hidden></div>
       <div id="approval" class="panel approval" hidden></div>
+      <div id="detail" class="panel" hidden></div>
     </section>
 
     <aside class="col-side">
@@ -109,7 +110,7 @@
         <ul id="vendorList" class="plan-list"></ul>
       </section>
 
-      <section class="panel">
+      <section class="panel quiet">
         <div class="panel-head"><h2>What Nipta did</h2><button id="refreshAudit" class="link">Refresh</button></div>
         <ol id="activity" class="activity"></ol>
       </section>

@@ -330,10 +330,16 @@ def transcribe(audio: bytes, filename: str, mime: str, language: str | None = No
     if resp.status_code >= 400:
         try:
             err = resp.json().get("error", {})
-        except ValueError:
+        except (ValueError, AttributeError):  # non-JSON or non-object body
             err = {}
-        raise SarvamError(f"HTTP {resp.status_code} {err.get('code', '')}".strip())
-    body = resp.json()
+        err_code = err.get("code", "") if isinstance(err, dict) else ""  # "error" may be a plain string
+        raise SarvamError(f"HTTP {resp.status_code} {err_code}".strip())
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):  # e.g. a gateway's HTML page with status 200
+        raise SarvamError("Unreadable speech-to-text response")
     return {"transcript": body.get("transcript") or "", "language_code": body.get("language_code"),
             "language_probability": body.get("language_probability"), "request_id": body.get("request_id")}
 

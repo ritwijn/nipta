@@ -1,9 +1,10 @@
 """Parsed (normalized) view of a raw extraction. Built from stored raw JSON so checks can be re-run."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from ..schemas import ExtractionRaw
 from . import normalize as N
@@ -64,13 +65,12 @@ class NormInvoice:
 
 
 def _parse_rate(s: str | None) -> Decimal | None:
+    """'9%', '@ 9%', 'IGST 18 %', '18' -> Decimal. More than one percentage or 'NaN' -> None."""
     if not s:
         return None
-    t = N.to_ascii_digits(s).replace("%", "").strip()
-    try:
-        return Decimal(t)
-    except InvalidOperation:
-        return None
+    t = N.to_ascii_digits(s).strip()
+    found = re.findall(r"(\d+(?:\.\d+)?)\s*%", t) or re.findall(r"^\d+(?:\.\d+)?$", t)
+    return Decimal(found[0]) if len(found) == 1 else None
 
 
 def normalize_extraction(raw: ExtractionRaw) -> NormInvoice:
@@ -97,7 +97,7 @@ def normalize_extraction(raw: ExtractionRaw) -> NormInvoice:
         )
         for t in raw.tax_lines
     ]
-    ifsc = raw.ifsc.strip().upper() if raw.ifsc else None
+    ifsc = re.sub(r"[\s\-]", "", raw.ifsc).upper() or None if raw.ifsc else None
     return NormInvoice(
         raw=raw,
         language=raw.language,

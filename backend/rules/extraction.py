@@ -1,7 +1,10 @@
 """Extraction validation: missing or low-confidence fields become REVIEW findings, never guesses."""
 from __future__ import annotations
 
+import re
+
 from ..schemas import Finding
+from . import normalize as N
 from .model import NormInvoice
 
 MONETARY_FIELDS = ("stated_total", "subtotal", "line_items", "tax_lines", "amount_in_words", "bank_account")
@@ -39,6 +42,9 @@ def validate_extraction(inv: NormInvoice, min_confidence: float) -> list[Finding
         if tax.amount_paise is None:
             missing.append({"field": f"tax_lines[{i}].amount", "problem": "absent" if tax.amount_raw is None
                             else "unparsable", "raw": tax.amount_raw})
+
+    if inv.claimed_account and not re.search(r"\d", N.to_ascii_digits(inv.claimed_account)):  # e.g. "XXXXXXXXXXXX"
+        missing.append({"field": "bank_account", "problem": "unparsable", "raw": inv.claimed_account})
 
     if inv.invoice_number_norm is None:
         missing.append({"field": "invoice_number", "problem": "absent"})

@@ -14,8 +14,12 @@ from . import normalize as N
 _SUFFIXES = {"pvt", "ltd", "private", "limited", "llp", "co", "company", "inc", "प्रा", "लि", "ಪ್ರೈವೇಟ್", "ಲಿಮಿಟೆಡ್", "பிரைவேட்", "லிமிடெட்"}
 
 
+# "M/s" / "M/S." honorific prefix and the "(P)" of "(P) Ltd." (= Private): stripped only in these exact shapes.
+_AFFIXES = re.compile(r"^\s*m\s*/\s*s\b\.?|\(\s*p\s*\)", re.IGNORECASE)
+
+
 def _vendor_key(name: str | None) -> str | None:
-    norm = N.normalize_vendor_name(name)
+    norm = N.normalize_vendor_name(_AFFIXES.sub(" ", name) if name else name)
     if not norm:
         return None
     tokens = [t for t in norm.split() if t not in _SUFFIXES]
@@ -39,6 +43,10 @@ def resolve_vendor(conn: sqlite3.Connection, vendor_name_raw: str | None) -> tup
                           evidence={"vendor_name": vendor_name_raw, "reason": reason, "candidates": matches})]
 
 
+def _ifsc(s: str) -> str:
+    return re.sub(r"[\s\-]", "", s).upper()
+
+
 def active_beneficiary(conn: sqlite3.Connection, vendor_id: str) -> dict | None:
     r = conn.execute(
         "SELECT * FROM beneficiaries WHERE vendor_id=? AND active=1", (vendor_id,)
@@ -56,14 +64,14 @@ def compare_beneficiary(conn: sqlite3.Connection, vendor_id: str, claimed_accoun
         return []  # T09: nothing printed, saved beneficiary stands
 
     differences: list[str] = []
-    if claimed_account:
-        claimed_digits = re.sub(r"[^0-9]", "", N.to_ascii_digits(claimed_account))
-        if N.is_masked(claimed_account):
-            if N.last4(claimed_account) != ben["account_last4"]:
-                differences.append("account_last4")
-        elif claimed_digits != ben["bank_account_number"]:
-            differences.append("account_number")
-    if claimed_ifsc and claimed_ifsc.upper() != ben["ifsc"].upper():
+    claimed_digits = re.sub(r"[^0-9]", "", N.to_ascii_digits(claimed_account or ""))
+    # No visible digits (e.g. "XXXXXXXXXXXX") is unreadable, not a change: validate_extraction raises REVIEW.
+    if claimed_digits and N.is_masked(claimed_account):
+        if N.last4(claimed_account) != ben["account_last4"]:
+            differences.append("account_last4")
+    elif claimed_digits and claimed_digits != ben["bank_account_number"]:
+        differences.append("account_number")
+    if claimed_ifsc and _ifsc(claimed_ifsc) != _ifsc(ben["ifsc"]):
         differences.append("ifsc")
 
     if differences:
