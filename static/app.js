@@ -146,6 +146,7 @@ $("#batchSelect").addEventListener("change", (e) => {
   state.batchId = e.target.value;
   state.selected = null;
   $("#detail").hidden = true;
+  $("#welcome").hidden = false;
   refreshBatch();
 });
 
@@ -156,21 +157,31 @@ async function refreshBatch() {
   if (!state.batchId) return;
   const b = await api(`/api/batches/${state.batchId}?${lq()}`);
   state.batch = b;
-  const counts = { ELIGIBLE: 0, REVIEW: 0, BLOCKED: 0 };
-  b.invoices.forEach((i) => counts[i.decision]++);
-  $("#batchSummary").innerHTML =
-    Object.entries(counts).map(([k, n]) => `<span class="chip ${DECISION_CLASS[k]}">${n} ${k.toLowerCase()}</span>`).join("") +
-    (b.unprocessed_documents.length ? `<span class="chip info">${b.unprocessed_documents.length} not yet checked</span>` : "");
-  $("#invoiceTable tbody").innerHTML = b.invoices.map((i) => `
-    <tr data-id="${esc(i.invoice_id)}" class="${i.invoice_id === state.selected ? "selected" : ""}">
-      <td class="mono">${esc(i.invoice_id)}</td>
-      <td>${esc(i.vendor || "—")}</td>
-      <td class="mono">${esc(i.invoice_number || "—")}</td>
-      <td class="num">${inr(i.stated_total_paise)}</td>
-      <td><span class="chip ${DECISION_CLASS[i.decision]}">${esc(i.decision_label)}</span></td>
-      <td>${i.payment_overlay ? `<span class="chip ${OVERLAY_CLASS[i.payment_overlay]}">${esc(i.payment_overlay.replace(/_/g, " ").toLowerCase())}</span>` : ""}</td>
-    </tr>`).join("") || `<tr><td colspan="6" class="muted">No invoices yet. Run checks to process uploaded documents.</td></tr>`;
-  document.querySelectorAll("#invoiceTable tbody tr[data-id]").forEach((tr) => tr.onclick = () => showInvoice(tr.dataset.id));
+  const groups = [["BLOCKED", "bad", "Blocked"], ["REVIEW", "warn", "Needs a check"], ["ELIGIBLE", "ok", "Safe to pay"]];
+  const sum = (list) => list.reduce((t, i) => t + (i.stated_total_paise || 0), 0);
+  const by = (k) => b.invoices.filter((i) => i.decision === k);
+  $("#batchSummary").innerHTML = groups.map(([k, cls, label]) => `
+    <div class="stat"><span class="label"><span class="dot ${cls}"></span>${esc(label.split(" ")[0])}</span>
+      <div class="n">${by(k).length}</div><div class="amt">${by(k).length ? inr(sum(by(k))) : "—"}</div></div>`).join("");
+  const bill = (i) => {
+    const open = i.findings.find((f) => f.status === "OPEN");
+    const why = i.payment_overlay ? i.payment_overlay.replace(/_/g, " ").toLowerCase()
+      : open ? open.explanation : `${i.invoice_number || ""}${i.due_date ? ` · due ${i.due_date}` : ""}`;
+    const ini = (i.vendor || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+    return `<button class="bill ${i.invoice_id === state.selected ? "selected" : ""}" data-id="${esc(i.invoice_id)}">
+      <span class="ini" aria-hidden="true">${esc(ini)}</span>
+      <span class="name">${esc(i.vendor || "Unknown vendor")}</span><span class="amt">${inr(i.stated_total_paise)}</span>
+      <span class="why">${esc(why)}</span></button>`;
+  };
+  $("#billList").innerHTML = groups.filter(([k]) => by(k).length).map(([k, cls, label]) => `
+    <div class="group-head"><span class="dot ${cls}"></span><span class="label">${esc(label)}</span><span class="amt">${inr(sum(by(k)))}</span></div>
+    <div class="bill-list">${by(k).map(bill).join("")}</div>`).join("")
+    + (b.invoices.length ? `<div class="total-row"><span class="label">All bills</span><span class="v">${inr(sum(b.invoices))}</span></div>`
+      : `<p class="muted" style="font-weight:600;margin-top:18px">No bills yet. Add this Friday's bills or load the sample.</p>`)
+    + (b.unprocessed_documents.length ? `<p class="small muted">${b.unprocessed_documents.length} not yet checked. Press Run checks.</p>` : "");
+  document.querySelectorAll("#billList .bill").forEach((el) => el.onclick = () => showInvoice(el.dataset.id));
+  $("#fridayTile").textContent = `${b.invoices.length} bills`;
+  $("#cashTile").textContent = inr(b.cash_budget_paise);
   $("#budget").value = Math.round(b.cash_budget_paise / 100);
   loadPlan();
   loadActivity();
@@ -239,7 +250,8 @@ $("#processBatch").addEventListener("click", async () => {
 
 async function showInvoice(id) {
   state.selected = id;
-  document.querySelectorAll("#invoiceTable tbody tr").forEach((tr) => tr.classList.toggle("selected", tr.dataset.id === id));
+  document.querySelectorAll("#billList .bill").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
+  $("#welcome").hidden = true;
   const d = await api(`/api/invoices/${id}/findings?${lq()}`);
   const el = $("#detail");
   el.hidden = false;
@@ -256,6 +268,34 @@ async function showInvoice(id) {
       <p>${esc(f.explanation)}</p>
       <details><summary>Evidence</summary><pre>${esc(JSON.stringify(f.evidence, null, 2))}</pre></details>
     </div>`).join("") : `<p class="muted">No findings.</p>`;
+  // The design's six checks, each fed by the finding codes that belong to it.
+  const CHECKS = [
+    ["Adds up", ["ARITHMETIC_MISMATCH", "ARITHMETIC_UNVERIFIABLE"], "Line items add up to the stated total."],
+    ["Words match", ["WORDS_FIGURES_MISMATCH", "WORDS_UNPARSABLE"], "Amount in words matches the figure."],
+    ["Not twice", ["CONFIRMED_DUPLICATE", "POSSIBLE_DUPLICATE", "ALREADY_PAID", "PAYMENT_IN_FLIGHT"], "Not already paid, not twice in this batch."],
+    ["Known vendor", ["VENDOR_UNRESOLVED"], "Vendor is in your approved list."],
+    ["Same bank account", ["CHANGED_BENEFICIARY", "NO_APPROVED_BENEFICIARY"], "Pays only your saved account."],
+    ["Name confirmed", ["VERIFICATION_MISSING", "VERIFICATION_FAILED", "ACCOUNT_NAME_MISMATCH"], "Account holder's name matches."],
+  ];
+  const open = d.findings.filter((f) => f.status === "OPEN");
+  const unread = open.some((f) => f.code === "DOCUMENT_UNREADABLE");  // nothing was checked, so nothing "passed"
+  const checkCards = CHECKS.map(([title, codes, ok]) => {
+    const hits = open.filter((f) => codes.includes(f.code));
+    // Never show a seeded verification as a real Cashfree name match.
+    const seeded = title === "Name confirmed" && !hits.length && (state.caps || {}).cashfree_secure_id !== "LIVE";
+    if (seeded) ok = "Seeded demo record, not a live Cashfree check.";
+    const st = unread ? ["NOT RUN", "muted"] : hits.some((f) => f.severity === "BLOCK") ? ["HOLD", "bad"]
+      : hits.length ? ["CHECK", "warn"] : seeded ? ["SEEDED", "muted"] : ["PASS", "ok"];
+    return `<div class="check ${st[0] === "HOLD" ? "hold" : ""}"><div class="row"><span class="t">${esc(title)}</span>
+      <span class="chip ${st[1]}">${st[0]}</span></div><p>${esc(hits.length ? hits.map((f) => f.explanation).join(" ") : unread ? "Bill could not be read." : ok)}</p></div>`;
+  });
+  const passed = checkCards.filter((c) => c.includes(">PASS<")).length;
+  const verdictCls = DECISION_CLASS[d.decision];
+  const verdictHtml = `<div class="verdict ${verdictCls}"><div><div class="big">${esc(d.decision_label)}</div>
+    <p>${esc(d.explanation || "")}</p></div></div>`;
+  const checksHtml = `<div class="panel-head" style="margin-top:22px"><h2>Six checks</h2>
+    <span class="small muted" style="font-weight:600">${passed} passed · ${6 - passed} not passed</span></div>
+    <div class="checks">${checkCards.join("")}</div>`;
   // Vendor call (Relay): only offered when the printed bank account differs from the saved one.
   const vc = d.vendor_call;
   const callHtml = d.findings.some((f) => f.code === "CHANGED_BENEFICIARY" && f.status !== "RESOLVED") ? `
@@ -272,8 +312,8 @@ async function showInvoice(id) {
     <td class="num">${inr(l.unit_price_paise)}</td><td class="num">${inr(l.line_total_paise)}</td>
     <td class="num ${l.computed_total_paise !== null && l.computed_total_paise !== l.line_total_paise ? "bad" : ""}">${inr(l.computed_total_paise)}</td></tr>`).join("");
   el.innerHTML = `
-    <div class="panel-head">
-      <h2><span class="mono">${esc(d.invoice_id)}</span> · ${esc(d.vendor || "Unknown vendor")}</h2>
+    <div class="panel-head detail-head">
+      <h2>${esc(d.vendor || "Unknown vendor")} <span class="mono muted">${esc(d.invoice_id)}</span></h2>
       <div class="actions">
         <span class="chip ${DECISION_CLASS[d.decision]}">${esc(d.decision_label)}</span>
         <a class="small" href="/api/invoices/${encodeURIComponent(d.invoice_id)}/source" target="_blank" rel="noopener">Original document</a>
@@ -281,6 +321,7 @@ async function showInvoice(id) {
         ${d.decision === "ELIGIBLE" ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
       </div>
     </div>
+    ${verdictHtml}
     <div class="grid2">
       <dl class="kv">
         <dt>Invoice no.</dt><dd class="mono">${esc(d.invoice_number || "—")}</dd>
@@ -297,6 +338,7 @@ async function showInvoice(id) {
         <dt>Payment</dt><dd>${d.attempt ? `<span class="chip ${OVERLAY_CLASS[d.payment_overlay] || "muted"}">${esc(d.attempt.status)}</span> <span class="mono small">${esc(d.attempt.transfer_id)}</span>` : "—"}</dd>
       </dl>
     </div>
+    ${checksHtml}
     <h3>Findings</h3>${findingsHtml}
     ${callHtml}
     ${lines ? `<h3>Line items</h3><div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line total</th><th class="num">Recomputed</th></tr></thead><tbody>${lines}</tbody></table></div>` : ""}
