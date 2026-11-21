@@ -33,6 +33,9 @@ def connect(path: str | None = None) -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(SCHEMA_PATH.read_text())
+    # Databases created before vendors.phone existed.
+    if "phone" not in {r[1] for r in conn.execute("PRAGMA table_info(vendors)")}:
+        conn.execute("ALTER TABLE vendors ADD COLUMN phone TEXT")
 
 
 @contextmanager

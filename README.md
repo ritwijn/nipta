@@ -36,6 +36,7 @@ Built solo for the **Cashfree × Sarvam AI Buildathon**, Bengaluru, 21 November 
 | [`docs/PRD.md`](docs/PRD.md) (v4.1) | Product behaviour, rubric coverage map, demo fixtures, acceptance tests T01–T28, demo script |
 | [`docs/architecture.md`](docs/architecture.md) (v2.1) | Rule definitions and finding codes, API and provider contracts, data model, payment state machine |
 | [`docs/implementation.md`](docs/implementation.md) (v1.1) | Build order, files, schema, configuration, setup and test commands |
+| [`docs/relay-vendor-call.md`](docs/relay-vendor-call.md) | Live vendor call via Relay when bank details change: setup and call script |
 
 If the documents disagree, the problem statement owns the challenge, the PRD owns behaviour, the architecture owns implementation contracts, and the implementation guide owns build steps.
 

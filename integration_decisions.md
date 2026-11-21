@@ -19,6 +19,7 @@ confirmed here, Nipta keeps that provider OFF and uses its labelled fallback.
 | Sarvam TTS | ☑ documented, ☐ live-tested | `POST /text-to-speech`, `text` ≤ 2,500 chars, `language_code`, `bulbul:v3`, speakers e.g. `shubh` (default) | 2026-11-21 |
 | Sarvam STT (voice questions) | ☑ documented, ☐ live-tested | `POST /speech-to-text` multipart, `saaras:v4`, `language_code=unknown` auto-detects; WebM accepted; REST meant for < 30 s | 2026-11-21 |
 | Sarvam chat (agent) | ☑ documented, ☐ live-tested | `POST /v1/chat/completions` (not v2); Bearer + `api-subscription-key`; tools supported | 2026-11-21 |
+| Relay: inbound webhook trigger + voice call to a payload phone + HTTP action with call outcome (docs/relay-vendor-call.md) | ☐ unconfirmed | | |
 | Organizer rule: does INITIATED/PENDING count as "verified payout", or only COMPLETED? | ☐ unconfirmed | | |
 
 ## Manual sandbox payout test

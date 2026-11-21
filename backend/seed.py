@@ -23,9 +23,9 @@ def seed_registry(conn: sqlite3.Connection) -> None:
         for v in data["vendors"]:
             conn.execute(
                 "INSERT OR IGNORE INTO vendors(vendor_id, display_name, aliases_json, statutory_risk,"
-                " deadline_basis_verified, payment_terms_days) VALUES (?,?,?,?,?,?)",
+                " deadline_basis_verified, payment_terms_days, phone) VALUES (?,?,?,?,?,?,?)",
                 (v["vendor_id"], v["display_name"], json.dumps(v["aliases"], ensure_ascii=False),
-                 v["statutory_risk"], v["deadline_basis_verified"], v.get("payment_terms_days")),
+                 v["statutory_risk"], v["deadline_basis_verified"], v.get("payment_terms_days"), v.get("phone")),
             )
             b = v["beneficiary"]
             conn.execute(
