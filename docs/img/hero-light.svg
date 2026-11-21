@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 430" width="880" height="430" role="img" aria-labelledby="ttl dsc">
+<title id="ttl">Nipta</title>
+<desc id="dsc">Nipta reads three bills (Coimbatore Packing in Kannada, Kaveri Fasteners in Hindi, Eastern Hardware in English), runs six checks on each, marks the first safe to pay, the second a possible copy and the third blocked for a changed bank account, then pays ₹3,200 once through the Cashfree sandbox after the owner approves.</desc>
+<defs>
+  <linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F9F1DC"/><stop offset="1" stop-color="#E6D7B0"/></linearGradient>
+  <linearGradient id="sunk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E2D2A9"/><stop offset="1" stop-color="#F4EBD2"/></linearGradient>
+  <linearGradient id="cap" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2A8C66"/><stop offset="1" stop-color="#1E7656"/></linearGradient>
+  <filter id="raise" x="-10%" y="-20%" width="120%" height="150%">
+    <feDropShadow dx="-4" dy="-4" stdDeviation="5" flood-color="#FFFCF0" flood-opacity="0.95"/>
+    <feDropShadow dx="5" dy="6" stdDeviation="7" flood-color="#8A6C38" flood-opacity="0.34"/>
+  </filter>
+  <filter id="key" x="-10%" y="-30%" width="120%" height="170%">
+    <feDropShadow dx="-2" dy="-2" stdDeviation="3" flood-color="#FFFCF0" flood-opacity="0.95"/>
+    <feDropShadow dx="3" dy="3" stdDeviation="4" flood-color="#8A6C38" flood-opacity="0.27"/>
+  </filter>
+  <filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2.4"/></filter>
+</defs>
+<style>
+text { font-family: Manrope, 'Segoe UI', 'Helvetica Neue', Arial, 'Noto Sans Kannada', 'Noto Sans Devanagari', sans-serif; fill: #2A2217; }
+.lbl { font-family: 'Chakra Petch', 'Segoe UI', Arial, sans-serif; font-weight: 700; letter-spacing: 0.14em; font-size: 10.5px; fill: #4A3F2E; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; }
+.muted { fill: #6A5C44; }
+@keyframes row0 { 0%, 1.0% { opacity: 0; transform: translate(-18px, 0px); } 4.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.row0 { animation: row0 12s ease-out infinite; }
+@keyframes d00 { 0%, 14.0% { opacity: 0; } 17.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d00 { animation: d00 12s ease-out infinite; }
+@keyframes d01 { 0%, 15.6% { opacity: 0; } 18.6%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d01 { animation: d01 12s ease-out infinite; }
+@keyframes d02 { 0%, 17.2% { opacity: 0; } 20.2%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d02 { animation: d02 12s ease-out infinite; }
+@keyframes d03 { 0%, 18.8% { opacity: 0; } 21.8%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d03 { animation: d03 12s ease-out infinite; }
+@keyframes d04 { 0%, 20.4% { opacity: 0; } 23.4%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d04 { animation: d04 12s ease-out infinite; }
+@keyframes d05 { 0%, 22.0% { opacity: 0; } 25.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d05 { animation: d05 12s ease-out infinite; }
+@keyframes v0 { 0%, 52.0% { opacity: 0; transform: translate(10px, 0px); } 55.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.v0 { animation: v0 12s ease-out infinite; }
+@keyframes row1 { 0%, 4.0% { opacity: 0; transform: translate(-18px, 0px); } 7.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.row1 { animation: row1 12s ease-out infinite; }
+@keyframes d10 { 0%, 26.0% { opacity: 0; } 29.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d10 { animation: d10 12s ease-out infinite; }
+@keyframes d11 { 0%, 27.6% { opacity: 0; } 30.6%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d11 { animation: d11 12s ease-out infinite; }
+@keyframes d12 { 0%, 29.2% { opacity: 0; } 32.2%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d12 { animation: d12 12s ease-out infinite; }
+@keyframes d13 { 0%, 30.8% { opacity: 0; } 33.8%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d13 { animation: d13 12s ease-out infinite; }
+@keyframes d14 { 0%, 32.4% { opacity: 0; } 35.4%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d14 { animation: d14 12s ease-out infinite; }
+@keyframes d15 { 0%, 34.0% { opacity: 0; } 37.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d15 { animation: d15 12s ease-out infinite; }
+@keyframes v1 { 0%, 54.5% { opacity: 0; transform: translate(10px, 0px); } 57.5%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.v1 { animation: v1 12s ease-out infinite; }
+@keyframes row2 { 0%, 7.0% { opacity: 0; transform: translate(-18px, 0px); } 10.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.row2 { animation: row2 12s ease-out infinite; }
+@keyframes d20 { 0%, 38.0% { opacity: 0; } 41.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d20 { animation: d20 12s ease-out infinite; }
+@keyframes d21 { 0%, 39.6% { opacity: 0; } 42.6%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d21 { animation: d21 12s ease-out infinite; }
+@keyframes d22 { 0%, 41.2% { opacity: 0; } 44.2%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d22 { animation: d22 12s ease-out infinite; }
+@keyframes d23 { 0%, 42.8% { opacity: 0; } 45.8%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d23 { animation: d23 12s ease-out infinite; }
+@keyframes d24 { 0%, 44.4% { opacity: 0; } 47.4%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d24 { animation: d24 12s ease-out infinite; }
+@keyframes d25 { 0%, 46.0% { opacity: 0; } 49.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.d25 { animation: d25 12s ease-out infinite; }
+@keyframes v2 { 0%, 57.0% { opacity: 0; transform: translate(10px, 0px); } 60.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.v2 { animation: v2 12s ease-out infinite; }
+@keyframes pay { 0%, 64.0% { opacity: 0; transform: translate(0px, 8px); } 67.0%, 95.0% { opacity: 1; transform: none; } 97.0%, 100% { opacity: 0; } }
+.pay { animation: pay 12s ease-out infinite; }
+@keyframes press { 0%, 69% { transform: none; } 70.5% { transform: translateY(4px); } 72%, 100% { transform: none; } }
+.press { animation: press 12s infinite; }
+@keyframes pend { 0%, 72.0% { opacity: 0; } 75.0%, 83.0% { opacity: 1; } 85.0%, 100% { opacity: 0; } }
+.pend { animation: pend 12s ease-out infinite; }
+@keyframes done { 0%, 84.0% { opacity: 0; } 87.0%, 95.0% { opacity: 1; } 97.0%, 100% { opacity: 0; } }
+.done { animation: done 12s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; }
+  .a { opacity: 1 !important; transform: none !important; }
+  .gone { opacity: 0 !important; }
+}
+</style>
+<rect width="880" height="430" rx="28" fill="#F1E6C8"/>
+<rect x="32" y="30" width="52" height="52" rx="16" fill="url(#sunk)"/><text x="58" y="66" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:26px;fill:#1E7656">N</text><text x="100" y="62" style="font-size:34px;font-weight:800;letter-spacing:-1px">Nipta</text><text x="101" y="82" class="muted" style="font-size:14px;font-weight:600">Pay the right bill, to the right person.</text>
+<g class=""><rect x="560" y="34" width="150" height="22" rx="11" fill="url(#sunk)"/><circle cx="572" cy="45" r="3.5" fill="#EDA62F"/><text x="581" y="49" class="lbl" style="fill:#8A5A08;font-size:10px;letter-spacing:.08em">CASHFREE SANDBOX</text></g>
+<g class=""><rect x="718" y="34" width="130" height="22" rx="11" fill="url(#sunk)"/><circle cx="730" cy="45" r="3.5" fill="#3CCB8E"/><text x="739" y="49" class="lbl" style="fill:#1E7656;font-size:10px;letter-spacing:.08em">SARVAM AI</text></g>
+<text x="848" y="80" text-anchor="end" class="muted" style="font-size:13px;font-weight:600">English · ಕನ್ನಡ · हिन्दी</text>
+<rect x="32" y="104" width="816" height="214" rx="24" fill="url(#card)" filter="url(#raise)"/>
+<text x="56" y="134" class="lbl">THIS FRIDAY · 3 BILLS</text>
+<text x="384" y="134" text-anchor="middle" class="lbl" style="font-size:8px;letter-spacing:.06em">ADDS UP</text>
+<text x="424" y="134" text-anchor="middle" class="lbl" style="font-size:8px;letter-spacing:.06em">WORDS</text>
+<text x="464" y="134" text-anchor="middle" class="lbl" style="font-size:8px;letter-spacing:.06em">TWICE?</text>
+<text x="504" y="134" text-anchor="middle" class="lbl" style="font-size:8px;letter-spacing:.06em">VENDOR</text>
+<text x="544" y="134" text-anchor="middle" class="lbl" style="font-size:8px;letter-spacing:.06em">BANK</text>
+<text x="584" y="134" text-anchor="middle" class="lbl" style="font-size:8px;letter-spacing:.06em">NAME</text>
+<g class="a row0"><rect x="48" y="150" width="784" height="44" rx="14" fill="url(#card)" filter="url(#key)"/><circle cx="72" cy="172" r="14" fill="url(#sunk)"/><text x="72" y="176" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px">CP</text><text x="96" y="169" style="font-weight:800;font-size:13.5px">Coimbatore Packing</text><text x="96" y="185" class="muted mono" style="font-size:10.5px">CP-201 · ಕನ್ನಡ</text><text x="356" y="177" text-anchor="end" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:600;font-size:14px">₹3,200</text>
+<circle cx="384" cy="172" r="7" fill="url(#sunk)"/><g class="a d00"><circle cx="384" cy="172" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="384" cy="172" r="5" fill="#3CCB8E"/></g>
+<circle cx="424" cy="172" r="7" fill="url(#sunk)"/><g class="a d01"><circle cx="424" cy="172" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="424" cy="172" r="5" fill="#3CCB8E"/></g>
+<circle cx="464" cy="172" r="7" fill="url(#sunk)"/><g class="a d02"><circle cx="464" cy="172" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="464" cy="172" r="5" fill="#3CCB8E"/></g>
+<circle cx="504" cy="172" r="7" fill="url(#sunk)"/><g class="a d03"><circle cx="504" cy="172" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="504" cy="172" r="5" fill="#3CCB8E"/></g>
+<circle cx="544" cy="172" r="7" fill="url(#sunk)"/><g class="a d04"><circle cx="544" cy="172" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="544" cy="172" r="5" fill="#3CCB8E"/></g>
+<circle cx="584" cy="172" r="7" fill="url(#sunk)"/><g class="a d05"><circle cx="584" cy="172" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="584" cy="172" r="5" fill="#3CCB8E"/></g>
+<g class="a v0"><rect x="610" y="161" width="108" height="22" rx="11" fill="url(#sunk)"/><circle cx="622" cy="172" r="3.5" fill="#3CCB8E"/><text x="631" y="176" class="lbl" style="fill:#1E7656;font-size:10px;letter-spacing:.08em">SAFE TO PAY</text></g>
+</g>
+<g class="a row1"><rect x="48" y="204" width="784" height="44" rx="14" fill="url(#card)" filter="url(#key)"/><circle cx="72" cy="226" r="14" fill="url(#sunk)"/><text x="72" y="230" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px">KF</text><text x="96" y="223" style="font-weight:800;font-size:13.5px">Kaveri Fasteners</text><text x="96" y="239" class="muted mono" style="font-size:10.5px">KF/182-A · हिन्दी</text><text x="356" y="231" text-anchor="end" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:600;font-size:14px">₹8,200</text>
+<circle cx="384" cy="226" r="7" fill="url(#sunk)"/><g class="a d10"><circle cx="384" cy="226" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="384" cy="226" r="5" fill="#3CCB8E"/></g>
+<circle cx="424" cy="226" r="7" fill="url(#sunk)"/><g class="a d11"><circle cx="424" cy="226" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="424" cy="226" r="5" fill="#3CCB8E"/></g>
+<circle cx="464" cy="226" r="7" fill="url(#sunk)"/><g class="a d12"><circle cx="464" cy="226" r="6" fill="#EDA62F" filter="url(#glow)" opacity="0.7"/><circle cx="464" cy="226" r="5" fill="#EDA62F"/></g>
+<circle cx="504" cy="226" r="7" fill="url(#sunk)"/><g class="a d13"><circle cx="504" cy="226" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="504" cy="226" r="5" fill="#3CCB8E"/></g>
+<circle cx="544" cy="226" r="7" fill="url(#sunk)"/><g class="a d14"><circle cx="544" cy="226" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="544" cy="226" r="5" fill="#3CCB8E"/></g>
+<circle cx="584" cy="226" r="7" fill="url(#sunk)"/><g class="a d15"><circle cx="584" cy="226" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="584" cy="226" r="5" fill="#3CCB8E"/></g>
+<g class="a v1"><rect x="610" y="215" width="208" height="22" rx="11" fill="url(#sunk)"/><circle cx="622" cy="226" r="3.5" fill="#EDA62F"/><text x="631" y="230" class="lbl" style="fill:#8A5A08;font-size:10px;letter-spacing:.08em">CHECK · LOOKS LIKE A COPY</text></g>
+</g>
+<g class="a row2"><rect x="48" y="258" width="784" height="44" rx="14" fill="url(#card)" filter="url(#key)"/><circle cx="72" cy="280" r="14" fill="url(#sunk)"/><text x="72" y="284" text-anchor="middle" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:700;font-size:11px">EH</text><text x="96" y="277" style="font-weight:800;font-size:13.5px">Eastern Hardware</text><text x="96" y="293" class="muted mono" style="font-size:10.5px">EH-040 · English</text><text x="356" y="285" text-anchor="end" style="font-family:'Chakra Petch', 'Segoe UI', Arial, sans-serif;font-weight:600;font-size:14px">₹6,000</text>
+<circle cx="384" cy="280" r="7" fill="url(#sunk)"/><g class="a d20"><circle cx="384" cy="280" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="384" cy="280" r="5" fill="#3CCB8E"/></g>
+<circle cx="424" cy="280" r="7" fill="url(#sunk)"/><g class="a d21"><circle cx="424" cy="280" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="424" cy="280" r="5" fill="#3CCB8E"/></g>
+<circle cx="464" cy="280" r="7" fill="url(#sunk)"/><g class="a d22"><circle cx="464" cy="280" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="464" cy="280" r="5" fill="#3CCB8E"/></g>
+<circle cx="504" cy="280" r="7" fill="url(#sunk)"/><g class="a d23"><circle cx="504" cy="280" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="504" cy="280" r="5" fill="#3CCB8E"/></g>
+<circle cx="544" cy="280" r="7" fill="url(#sunk)"/><g class="a d24"><circle cx="544" cy="280" r="6" fill="#F0644A" filter="url(#glow)" opacity="0.7"/><circle cx="544" cy="280" r="5" fill="#F0644A"/></g>
+<circle cx="584" cy="280" r="7" fill="url(#sunk)"/><g class="a d25"><circle cx="584" cy="280" r="6" fill="#3CCB8E" filter="url(#glow)" opacity="0.7"/><circle cx="584" cy="280" r="5" fill="#3CCB8E"/></g>
+<g class="a v2"><rect x="610" y="269" width="200" height="22" rx="11" fill="url(#sunk)"/><circle cx="622" cy="280" r="3.5" fill="#F0644A"/><text x="631" y="284" class="lbl" style="fill:#A8361F;font-size:10px;letter-spacing:.08em">DON'T PAY · NEW BANK A/C</text></g>
+</g>
+<g class="a pay"><rect x="32" y="338" width="816" height="64" rx="22" fill="url(#sunk)"/><g class="press"><rect x="48" y="350" width="196" height="40" rx="13" fill="#145A40" transform="translate(0,5)"/><rect x="48" y="350" width="196" height="40" rx="13" fill="url(#cap)"/><text x="146" y="375" text-anchor="middle" style="font-weight:800;font-size:14px;fill:#F4FFF8">Approve ₹3,200</text></g><text x="262" y="367" style="font-weight:700;font-size:13px">to Coimbatore Packing</text><text x="262" y="384" class="muted mono" style="font-size:11px">saved account ••6011 · one transfer ID</text><g class="a pend gone"><g class=""><rect x="620" y="359" width="212" height="22" rx="11" fill="url(#sunk)"/><circle cx="632" cy="370" r="3.5" fill="#EDA62F"/><text x="641" y="374" class="lbl" style="fill:#8A5A08;font-size:10px;letter-spacing:.08em">CASHFREE · PENDING</text></g></g><g class="a done"><g class=""><rect x="620" y="359" width="212" height="22" rx="11" fill="url(#sunk)"/><circle cx="632" cy="370" r="3.5" fill="#3CCB8E"/><text x="641" y="374" class="lbl" style="fill:#1E7656;font-size:10px;letter-spacing:.08em">COMPLETED · POSTED ONCE</text></g></g></g>
+</svg>
