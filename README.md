@@ -125,12 +125,12 @@ after the owner clears each finding with a reason) or **don't pay** (no override
 
 | Bill | Vendor | Language | Amount | Result | Why |
 |---|---|---|---:|---|---|
-| INV-A | Kaveri Fasteners | English | ₹8,200 | 🟢 Eligible | Clean; matches the saved account |
-| INV-B | Tamil Tools | Kannada | ₹4,500 | 🔴 Blocked | Items add up to ₹4,300 |
-| INV-C | Kaveri Fasteners | Hindi | ₹8,200 | 🟠 Review | Same items and amount as INV-A, number and date rewritten |
-| INV-D | Eastern Hardware | English | ₹6,000 | 🔴 Blocked | Printed account differs from the saved one |
-| INV-E | Coimbatore Packing | Kannada (Kannada digits) | ₹3,200 | 🟢 Eligible | Clean; due first, so paid first |
-| INV-F | Sri Murugan Traders | English | ₹2,750 | 🟠 Review | Not in the approved vendor list |
+| INV-A | Kaveri Fasteners | English | ₹8,200 | Eligible | Clean; matches the saved account |
+| INV-B | Tamil Tools | Kannada | ₹4,500 | Blocked | Items add up to ₹4,300 |
+| INV-C | Kaveri Fasteners | Hindi | ₹8,200 | Review | Same items and amount as INV-A, number and date rewritten |
+| INV-D | Eastern Hardware | English | ₹6,000 | Blocked | Printed account differs from the saved one |
+| INV-E | Coimbatore Packing | Kannada (Kannada digits) | ₹3,200 | Eligible | Clean; due first, so paid first |
+| INV-F | Sri Murugan Traders | English | ₹2,750 | Review | Not in the approved vendor list |
 
 The rules read the bill's fields, never its ID, and a set of unseen [`fixtures/curveballs/`](fixtures/curveballs) (lakh
 numerals, a Devanagari vendor name, a prompt injection written on the bill, a missing bank line and more) checks that clean
