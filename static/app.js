@@ -8,13 +8,17 @@ const state = {
   selected: null,
   proposalId: null,
   pollTimer: null,
+  callTimer: null,
+  callId: null,
+  callDeadline: 0,
   lang: "en",
 };
 
 try {
   state.token = sessionStorage.getItem("nipta.token");
   state.operator = sessionStorage.getItem("nipta.operator");
-  state.lang = localStorage.getItem("nipta.lang") || "en";
+  const saved = localStorage.getItem("nipta.lang");
+  state.lang = ["en", "kn", "hi"].includes(saved) ? saved : "en";  // a stale value would break every request
 } catch (_) { /* storage unavailable */ }
 
 const $ = (sel) => document.querySelector(sel);
@@ -106,11 +110,31 @@ function renderSession() {
   $("#upload").disabled = !signedIn;
 }
 
+function stopPolling() {
+  clearTimeout(state.pollTimer);
+  clearTimeout(state.callTimer);
+  state.pollTimer = state.callTimer = null;
+}
+
+// Every data route needs a session, so signed out we show only this prompt.
+function renderSignedOut() {
+  stopPolling();
+  Object.assign(state, { batchId: null, batch: null, selected: null, proposalId: null });
+  $("#detail").hidden = true;
+  $("#approval").hidden = true;
+  $("#welcome").hidden = false;
+  ["#batchSummary", "#batchSelect", "#today", "#plan", "#activity", "#vendorList"].forEach((s) => { $(s).innerHTML = ""; });
+  $("#billList").innerHTML = `<p class="muted" style="font-weight:600;margin-top:18px">Sign in with your PIN to see this Friday's bills.</p>`;
+  $("#fridayTile").textContent = "—";
+  $("#cashTile").textContent = "—";
+}
+
 function signOut() {
   state.token = null;
   state.operator = null;
   try { sessionStorage.removeItem("nipta.token"); sessionStorage.removeItem("nipta.operator"); } catch (_) {}
   renderSession();
+  renderSignedOut();
 }
 
 $("#login").addEventListener("submit", async (e) => {
@@ -123,7 +147,9 @@ $("#login").addEventListener("submit", async (e) => {
     $("#pin").value = "";
     renderSession();
     toast("Signed in");
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(err.message); return; }
+  loadBatches().catch((e) => toast(e.message));
+  loadVendors().catch((e) => toast(e.message));
 });
 
 $("#lang").value = state.lang;
@@ -163,11 +189,11 @@ async function refreshBatch() {
   if (!state.batchId) return;
   const b = await api(`/api/batches/${state.batchId}?${lq()}`);
   state.batch = b;
-  const groups = [["BLOCKED", "bad", "Blocked"], ["REVIEW", "warn", "Needs a check"], ["ELIGIBLE", "ok", "Safe to pay"]];
+  const groups = [["BLOCKED", "bad", "Blocked", "Blocked"], ["REVIEW", "warn", "Needs a check", "Check"], ["ELIGIBLE", "ok", "Safe to pay", "Safe"]];
   const sum = (list) => list.reduce((t, i) => t + (i.stated_total_paise || 0), 0);
   const by = (k) => b.invoices.filter((i) => i.decision === k);
-  $("#batchSummary").innerHTML = groups.map(([k, cls, label]) => `
-    <div class="stat"><span class="label"><span class="dot ${cls}"></span>${esc(label.split(" ")[0])}</span>
+  $("#batchSummary").innerHTML = groups.map(([k, cls, label, short]) => `
+    <div class="stat"><span class="label"><span class="dot ${cls}"></span>${esc(short)}</span>
       <div class="n">${by(k).length}</div><div class="amt">${by(k).length ? inr(sum(by(k))) : "—"}</div></div>`).join("");
   const bill = (i) => {
     const open = i.findings.find((f) => f.status === "OPEN");
@@ -177,7 +203,7 @@ async function refreshBatch() {
     return `<button class="bill ${i.invoice_id === state.selected ? "selected" : ""}" data-id="${esc(i.invoice_id)}">
       <span class="ini" aria-hidden="true">${esc(ini)}</span>
       <span class="name">${esc(i.vendor || "Unknown vendor")}</span><span class="amt">${inr(i.stated_total_paise)}</span>
-      <span class="why">${esc(why)}</span></button>`;
+      <span class="why"><span class="tag ${DECISION_CLASS[i.decision]}">${esc(i.decision_label)}</span> ${esc(why)}</span></button>`;
   };
   $("#billList").innerHTML = groups.filter(([k]) => by(k).length).map(([k, cls, label]) => `
     <div class="group-head"><span class="dot ${cls}"></span><span class="label">${esc(label)}</span><span class="amt">${inr(sum(by(k)))}</span></div>
@@ -187,9 +213,12 @@ async function refreshBatch() {
     + (b.unprocessed_documents.length ? `<p class="small muted">${b.unprocessed_documents.length} not yet checked. Press Run checks.</p>` : "");
   document.querySelectorAll("#billList .bill").forEach((el) => el.onclick = () => showInvoice(el.dataset.id));
   const hasBills = b.invoices.length > 0;
+  // Next step gets the green key: add bills, then run checks; after that the Today list leads.
+  $("label.file-btn").classList.toggle("primary", !hasBills && !b.unprocessed_documents.length);
+  $("#processBatch").classList.toggle("primary", b.unprocessed_documents.length > 0);
   $("#welcome").classList.toggle("has-bills", hasBills);
   $("#introText").hidden = hasBills;
-  $("#sixHead").hidden = !hasBills;
+  $("#sixDetails").open = false;
   if (!hasBills) $("#today").innerHTML = "";
   $("#fridayTile").textContent = `${b.invoices.length} bills`;
   $("#cashTile").textContent = inr(b.cash_budget_paise);
@@ -263,6 +292,7 @@ $("#processBatch").addEventListener("click", async () => {
 
 async function showInvoice(id) {
   state.selected = id;
+  clearTimeout(state.callTimer);
   document.querySelectorAll("#billList .bill").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
   $("#welcome").hidden = true;
   const d = await api(`/api/invoices/${id}/findings?${lq()}`);
@@ -330,9 +360,9 @@ async function showInvoice(id) {
       <div class="actions">
         <button class="small" id="backHome">← Today</button>
         <span class="chip ${DECISION_CLASS[d.decision]}">${esc(d.decision_label)}</span>
-        <a class="small" href="/api/invoices/${encodeURIComponent(d.invoice_id)}/source" target="_blank" rel="noopener">Original document</a>
+        <a class="small" href="#" id="openSource">Original document</a>
         <button class="secondary" id="rerun" data-auth>Re-run checks</button>
-        ${d.decision === "ELIGIBLE" ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
+        ${d.decision === "ELIGIBLE" && !d.proposal ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
         ${d.findings.some((f) => f.code === "VENDOR_UNRESOLVED" && f.status === "OPEN") ? `<button id="approveVendorBtn" data-auth>Approve this vendor…</button>` : ""}
       </div>
     </div>
@@ -360,6 +390,7 @@ async function showInvoice(id) {
     ${d.notes ? `<h3>Notes on document</h3><div class="note-data"><div class="small">${esc(d.notes_label)}</div>${esc(d.notes)}</div>` : ""}
   `;
   renderSession();
+  if (window.innerWidth < 900) el.scrollIntoView({ block: "start" });
   el.querySelectorAll("[data-resolve]").forEach((b) => b.onclick = async () => {
     const reason = prompt("Why is this finding OK? (recorded in the audit log)");
     if (!reason) return;
@@ -369,20 +400,28 @@ async function showInvoice(id) {
       showInvoice(id);
     } catch (err) { toast(err.message); }
   });
+  $("#openSource").onclick = (ev) => { ev.preventDefault(); openSource(id); };
   $("#backHome").onclick = () => {
+    stopPolling();
     state.selected = null;
+    state.proposalId = null;
     $("#detail").hidden = true;
     $("#approval").hidden = true;
     $("#welcome").hidden = false;
     document.querySelectorAll("#billList .bill").forEach((el) => el.classList.remove("selected"));
+    $("#welcome").scrollIntoView({ block: "start" });
   };
   const callBtn = $("#vendorCall");
   if (callBtn) callBtn.onclick = async () => {
     try { await api(`/api/invoices/${id}/vendor-call?${lq()}`, { method: "POST" }); toast("Calling vendor"); showInvoice(id); }
     catch (err) { toast(err.message); }
   };
-  // Poll until Relay posts the call result.
-  if (vc && vc.status === "REQUESTED") setTimeout(() => { if (state.selected === id) showInvoice(id); }, 5000);
+  // Poll until Relay posts the call result: one timer, given up after 5 minutes per call.
+  if (vc && vc.status === "REQUESTED") {
+    if (state.callId !== vc.call_id) { state.callId = vc.call_id; state.callDeadline = Date.now() + 5 * 60 * 1000; }
+    clearTimeout(state.callTimer);
+    if (Date.now() < state.callDeadline) state.callTimer = setTimeout(() => { if (state.selected === id) showInvoice(id); }, 5000);
+  }
   $("#rerun").onclick = async (ev) => {
     try {
       const inv = await busy(ev.currentTarget, "Checking…", () => api(`/api/invoices/${id}/checks`, { method: "POST" }));
@@ -403,10 +442,24 @@ async function showInvoice(id) {
   };
   if (d.proposal && ["READY_FOR_APPROVAL", "AUTHORIZED", "EXECUTED", "FINISHED"].includes(d.proposal.state)) {
     loadProposal(d.proposal.proposal_id);
-  } else if (state.proposalId) {
+  } else {
+    clearTimeout(state.pollTimer);  // else the old approval card's poll brings it back
     $("#approval").hidden = true;
     state.proposalId = null;
   }
+}
+
+// The source route needs the session header, which a plain link cannot send.
+async function openSource(id) {
+  const win = window.open("", "_blank");  // opened inside the click so popup blockers allow it
+  try {
+    const res = await fetch(`/api/invoices/${encodeURIComponent(id)}/source`, { headers: { Authorization: `Bearer ${state.token}` } });
+    if (res.status === 401) signOut();
+    if (!res.ok) throw new Error(res.status === 401 ? "Sign in again to open the document" : "Original document is not available");
+    const url = URL.createObjectURL(await res.blob());
+    if (win) win.location.href = url; else window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) { if (win) win.close(); toast(err.message); }
 }
 
 // ---- approval card --------------------------------------------------------------
@@ -435,16 +488,17 @@ function renderProposal(p) {
       ${t.applied ? "" : " · ignored (would move backwards)"} ${t.note ? "· " + esc(t.note) : ""} · ${new Date(t.created_at * 1000).toLocaleTimeString()}</span></span></li>`).join("");
   el.innerHTML = `
     <div class="panel-head">
-      <h2>Approval card</h2>
+      <h2>Approve this payment</h2>
       <span class="chip ${modeCls}">${esc(modeText)}</span>
     </div>
-    <div class="grid2">
-      <div>
-        <div class="muted small">Pay ${esc(p.vendor)} · invoice ${esc(p.invoice_number)} (${esc(p.invoice_id)})</div>
-        <div class="amount">${esc(p.amount_display)}</div>
-        <div>to saved account <strong class="mono">${esc(p.beneficiary_display)}</strong></div>
-        <div class="small"><span class="chip ${p.verification_label.startsWith("Live") ? "ok" : "muted"}">${esc(p.verification_label)}</span></div>
-      </div>
+    <div class="pay-focus">
+      <div class="small muted" style="font-weight:700">Pay</div>
+      <div class="payee">${esc(p.vendor)}</div>
+      <div class="amount">${esc(p.amount_display)}</div>
+      <div>to saved account <strong class="mono">${esc(p.beneficiary_display)}</strong> · invoice ${esc(p.invoice_number)}</div>
+      <div class="warn-row"><span class="chip ${p.verification_label.startsWith("Live") ? "ok" : "warn"}">${esc(p.verification_label)}</span></div>
+    </div>
+    <details class="audit"><summary>Audit details</summary>
       <dl class="kv small">
         <dt>Proposal</dt><dd class="mono">${esc(p.proposal_id)}</dd>
         <dt>State</dt><dd><strong>${esc(p.state)}</strong></dd>
@@ -455,7 +509,7 @@ function renderProposal(p) {
         ${a && a.cf_transfer_id ? `<dt>Provider ref</dt><dd class="mono">${esc(a.cf_transfer_id)}</dd>` : ""}
         <dt>Ledger posted</dt><dd>${p.ledger_posted ? "Yes (one settlement)" : "No"}</dd>
       </dl>
-    </div>
+    </details>
     <p><strong>${esc(p.status_text)}</strong></p>
     <div class="btn-row">
       ${p.state === "READY_FOR_APPROVAL" ? `<button id="approveBtn" data-auth>Approve ${esc(p.amount_display)}</button>` : ""}
@@ -468,6 +522,7 @@ function renderProposal(p) {
     ${p.postings && p.postings.length ? `<h3>Postings</h3><ul>${p.postings.map((x) => `<li>${esc(x.kind)} ${inr(x.amount_paise)}</li>`).join("")}</ul>` : ""}
   `;
   renderSession();
+  el.scrollIntoView({ block: "start", behavior: "smooth" });
   const approveBtn = $("#approveBtn");
   if (approveBtn) approveBtn.onclick = async () => {
     try {
@@ -487,7 +542,7 @@ function renderProposal(p) {
   if (rs) rs.onclick = () => loadProposal(p.proposal_id);
   $("#speak").onclick = () => speak("proposal", p.proposal_id);
   clearTimeout(state.pollTimer);
-  if (a && !TERMINAL.has(a.status)) state.pollTimer = setTimeout(() => loadProposal(p.proposal_id), 4000);
+  if (a && !TERMINAL.has(a.status)) state.pollTimer = setTimeout(() => { if (state.proposalId === p.proposal_id) loadProposal(p.proposal_id); }, 4000);
 }
 
 async function speak(kind, id) {
@@ -718,6 +773,8 @@ $("#refreshAudit").addEventListener("click", loadActivity);
 // ---- boot -----------------------------------------------------------------------
 
 renderSession();
-loadHealth().catch((e) => toast(e.message));
-loadBatches().catch((e) => toast(e.message));
-loadVendors().catch((e) => toast(e.message));
+loadHealth().catch((e) => toast(e.message));  // public: capability badges only
+if (state.token) {
+  loadBatches().catch((e) => toast(e.message));
+  loadVendors().catch((e) => toast(e.message));
+} else renderSignedOut();

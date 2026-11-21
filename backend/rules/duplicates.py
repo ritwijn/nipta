@@ -105,7 +105,8 @@ def check_duplicates(conn: sqlite3.Connection, inv: dict) -> list[Finding]:
             continue
         signals: list[dict] = []
         score = 0
-        if inv["stated_total_paise"] is not None and inv["stated_total_paise"] == e["stated_total_paise"]:
+        same_total = inv["stated_total_paise"] is not None and inv["stated_total_paise"] == e["stated_total_paise"]
+        if same_total:
             score += 3
             signals.append({"signal": "SAME_STATED_TOTAL", "points": 3, "amount_paise": e["stated_total_paise"]})
         their_tokens = line_tokens([r["description"] for r in conn.execute(
@@ -123,7 +124,7 @@ def check_duplicates(conn: sqlite3.Connection, inv: dict) -> list[Finding]:
             score += 1
             signals.append({"signal": "DATES_WITHIN_14_DAYS", "points": 1,
                             "dates": [e["invoice_date"], inv["invoice_date"]]})
-        if score >= CANDIDATE_THRESHOLD:
+        if score >= CANDIDATE_THRESHOLD and same_total:  # a repeat order for a different amount is not a re-bill
             ev = {"score": score, "threshold": CANDIDATE_THRESHOLD, "signals": signals,
                   "matched_invoice_number": e["invoice_number_raw"]}
             pay = payment_evidence(conn, e["invoice_id"])

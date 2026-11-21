@@ -97,23 +97,45 @@ def _batch_invoices(conn: sqlite3.Connection, batch_id: str) -> list[dict]:
                          " WHERE i.batch_id=? ORDER BY i.ingested_seq", (batch_id,))
 
 
+def _compact(s: str) -> str:
+    return re.sub(r"[\s\-/]", "", s)
+
+
 def _mentioned_invoices(text: str, invoices: list[dict]) -> list[str]:
-    """Invoice IDs, invoice numbers, or vendor names in any script (aliases), as typed or transcribed."""
+    """Invoice IDs, invoice numbers, or vendor names in any script (aliases), as typed or transcribed.
+
+    Numbers match whole tokens (never substrings, so KF/182-A is not KF-182); an exact token match beats
+    one spread over adjacent tokens ("KF 182"), and either beats a vendor-name match.
+    """
     t = strip_zero_width(text).casefold()
-    compact = re.sub(r"[\s\-/]", "", t)
-    found: list[str] = []
+    words = [_compact(w) for w in re.findall(r"[^\s,.;:!?()\"'“”‘’।]+", t)]
+    tokens = set(words)
+    joined = {"".join(words[i:i + n]) for n in (2, 3) for i in range(len(words) - n + 1)}
+    exact: list[str] = []
+    loose: list[tuple[str, str]] = []
+    by_vendor: list[str] = []
     for inv in invoices:
         iid = inv["invoice_id"]
-        names = [iid.casefold(), (inv["invoice_number_raw"] or "").casefold()]
+        for n in (iid, inv["invoice_number_raw"] or ""):
+            n = _compact(n.casefold())
+            if len(n) < 3:  # a one- or two-character "number" would match ordinary words
+                continue
+            if n in tokens:
+                exact.append(iid)
+            elif n in joined:
+                loose.append((n, iid))
         short = iid.split("-")[-1].casefold()
-        if any(n and (n in t or re.sub(r"[\s\-/]", "", n) in compact) for n in names) \
-                or re.search(rf"\binvoice\s+{re.escape(short)}\b", t):
-            found.append(iid)
-            continue
-        vendor_names = [inv["display_name"], inv["vendor_name_raw"], *json.loads(inv["aliases_json"] or "[]")]
-        if any(n and strip_zero_width(n).casefold() in t for n in vendor_names):
-            found.append(iid)
-    return list(dict.fromkeys(found))
+        if re.search(rf"\binvoice\s+{re.escape(short)}\b", t):
+            exact.append(iid)
+        for name in [inv["display_name"], inv["vendor_name_raw"], *json.loads(inv["aliases_json"] or "[]")]:
+            n = strip_zero_width(name or "").casefold()
+            # Left word boundary always; right only for Latin names (Kannada/Hindi attach case suffixes).
+            if len(n) >= 3 and re.search(rf"(?<!\w){re.escape(n)}" + (r"(?!\w)" if n[-1].isascii() else ""), t):
+                by_vendor.append(iid)
+                break
+    # "KF 182 A" joins to both kf182 and kf182a: keep the longer span only.
+    loose_ids = [iid for n, iid in loose if not any(n != m and n in m for m, _ in loose)]
+    return list(dict.fromkeys(exact or loose_ids or by_vendor))
 
 
 def keyword_route(text: str, invoices: list[dict]) -> list[dict]:
@@ -283,6 +305,7 @@ def handle_message(conn: sqlite3.Connection, operator_id: str, batch_id: str, te
                    planned_calls: list[dict] | None = None) -> dict:
     """`planned_calls` lets tests inject a model plan; otherwise Sarvam chat or the keyword router decides."""
     s = get_settings()
+    language = explain._lang(language)  # an unknown language code must not KeyError the reply templates
     if not db.row(conn, "SELECT 1 AS x FROM batches WHERE batch_id=?", (batch_id,)):
         raise NiptaError("NOT_FOUND", "Batch not found", 404)
     invoices = _batch_invoices(conn, batch_id)

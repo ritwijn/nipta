@@ -177,7 +177,7 @@ def test_T22_missing_fields_review_not_block(conn):
     raw = curveball("devanagari_known_vendor")
     raw.invoice_number = "TT-103"
     raw.line_items[0].line_total = None
-    raw.amount_in_words = "ಮೂರು ಸಾವಿರ ರೂಪಾಯಿ"
+    raw.amount_in_words = "மூவாயிரம் ரூபாய்"  # Tamil words are not parsed
     iid = add_invoice(conn, raw)
     f = findings(conn, iid)
     assert decision(conn, iid) == "REVIEW"
