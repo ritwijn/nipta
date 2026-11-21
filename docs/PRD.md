@@ -13,7 +13,7 @@
 | Regional language | Tamil, Hindi, English | **Kannada**, Hindi, English (`en`, `kn`, `hi`) across UI, explanations, voice and speech |
 | Invoice reading | Sarvam vision, "subject to available API" | **Sarvam Document AI Extract** (Sarvam Vision OCR job) by default. Verified live on a printed Hindi tax invoice. |
 | Voice | Optional | **Built:** mic button → Sarvam speech-to-text (`saaras:v4`, language auto-detected) → same agent; spoken reply via TTS |
-| Vendor registry | Seeded only | **Operator vendor approval** from the UI, from scratch or from an invoice with an unknown vendor |
+| Vendor registry | Seeded only | **Operator vendor approval** from the UI, plus **Secure ID-gated bank-account change requests** (new beneficiary version) |
 | Changed bank account | Hard block | Still a hard block, plus an optional **Relay vendor call** to the registry phone number as evidence |
 | Cashfree Payouts | Planned | **Live in sandbox:** keys accepted, 2FA public-key signature on, a real transfer submitted (`RECEIVED` → `PENDING`) |
 | Frontend | Vite + React + TypeScript | Single **no-build page** served by FastAPI ("Shop counter" design, Today list) |
@@ -256,6 +256,8 @@ Missing required monetary fields → `DOCUMENT_INCOMPLETE`; a present field belo
 - **Operator approval** (`POST /api/vendors`, signed-in only; no agent or voice path) creates a vendor and beneficiary version 1. Required: vendor name, other names (any script), account holder, account number entered twice, IFSC (`AAAA0XXXXXX`), optional payment terms.
 - **From an unknown-vendor bill**, "Approve this vendor…" **pre-fills every field from what the bill prints**, including the full account number. This is a product decision (21 Nov 2026), served by the signed-in-only `GET /api/invoices/{id}/vendor-draft` and audited as `VENDOR_DRAFT_VIEWED`. Public invoice views still return last-four only. The bill's own-script vendor name is added as an alias.
 - **Refused:** account numbers that don't match, a name or alias matching an existing vendor (`VENDOR_EXISTS`), or an account already saved for another vendor (`ACCOUNT_IN_USE`).
+- **Changing an approved vendor's bank account** (bank-change requests): an operator enters the new account after confirming it with the firm outside the invoice. Secure ID checks it, and only a good name match can be approved. Approval creates a **new beneficiary version** (old version kept) and re-runs that vendor's checks; rejection is recorded. Invoice text never changes an account. Approve/reject and the request form appear on the invoice page.
+- **Automatic verification:** while Secure ID is enabled, checks call it for a vendor's saved account when there's no recent live result. A seeded mock no longer counts, errors send the invoice to review, and there's a 60 s per-vendor cooldown.
 - **After approval:** Secure ID runs immediately if live. Otherwise the account starts unverified, so bills go to `VERIFICATION_MISSING` until reviewed with a reason. All bills with an unknown vendor are re-checked. The audit log records `account_source` (`MATCHES_INVOICE_PRINT` / `OPERATOR_ENTERED`) with the account masked. A typed account that differs from the bill's print blocks that bill as `CHANGED_BENEFICIARY`.
 
 ## 9. Cash budget and micro/small supplier deadlines (built)
