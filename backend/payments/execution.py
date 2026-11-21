@@ -73,22 +73,39 @@ def _reserve(conn: sqlite3.Connection, proposal_id: str, operator_id: str) -> tu
 
 
 def _claim_dispatch(conn: sqlite3.Connection, attempt_id: str) -> bool:
-    """Commit dispatch_started_at before any network I/O. Only one caller can win the claim."""
+    """Commit dispatch_started_at before any network I/O. Only one caller can win the claim.
+
+    The approval is re-checked in the same transaction: an un-sent reservation can be resumed long after
+    reserve, when the approval may have expired or the beneficiary rotated. Then nothing is sent and the
+    attempt is FAILED so a fresh proposal can be made.
+    """
+    error: NiptaError | None = None
     with db.immediate(conn):
-        cur = conn.execute(
-            "UPDATE payment_attempts SET dispatch_started_at=? WHERE attempt_id=? AND status='REQUEST_RESERVED'"
-            " AND dispatch_started_at IS NULL",
-            (db.now(), attempt_id),
-        )
-        return cur.rowcount == 1
+        a = status._attempt(conn, attempt_id)
+        if a["status"] != "REQUEST_RESERVED" or a["dispatch_started_at"] is not None:
+            return False
+        p = db.row(conn, "SELECT * FROM payment_proposals WHERE proposal_id=?", (a["proposal_id"],))
+        # The rebuild uses the vendor's active beneficiary, so a deactivated or rotated account is stale too.
+        code = approval.freshness_error(conn, p)  # type: ignore[arg-type]
+        if code is None:
+            conn.execute("UPDATE payment_attempts SET dispatch_started_at=? WHERE attempt_id=?",
+                         (db.now(), attempt_id))
+            return True
+        conn.execute("UPDATE payment_attempts SET last_error=? WHERE attempt_id=?",
+                     (f"{code}: stale approval, nothing sent", attempt_id))
+        status.transition_locked(conn, attempt_id, "FAILED", "EXECUTE",
+                                 {"reason": "stale approval, nothing sent", "code": code})
+        error = NiptaError(code, "The approval no longer matches live data; nothing was sent."
+                                 " Create a fresh proposal")
+    raise error
 
 
 def _beneficiary_for(conn: sqlite3.Connection, attempt: dict) -> dict:
     snap = approval.get_proposal(conn, attempt["proposal_id"])["snapshot"]
-    ben = db.row(conn, "SELECT * FROM beneficiaries WHERE beneficiary_id=? AND version=?",
+    ben = db.row(conn, "SELECT * FROM beneficiaries WHERE beneficiary_id=? AND version=? AND active=1",
                  (snap["beneficiary_id"], snap["beneficiary_version"]))
     if ben is None:
-        raise NiptaError("NOT_ELIGIBLE", "Snapshot beneficiary version no longer exists")
+        raise NiptaError("NOT_ELIGIBLE", "Snapshot beneficiary version is no longer active")
     return ben
 
 
