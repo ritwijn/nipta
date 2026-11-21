@@ -81,6 +81,7 @@ class Settings:
     approval_ttl_seconds: int = 600
     agent_max_tool_calls: int = 6
     test_mode: bool = False
+    demo_reset_enabled: bool = True
     max_upload_bytes: int = 10 * 1024 * 1024
 
     operator_id: str = "OP-RAGHU"
@@ -177,6 +178,7 @@ def load_settings() -> Settings:
         approval_ttl_seconds=_int("NIPTA_APPROVAL_TTL_SECONDS", 600),
         agent_max_tool_calls=_int("NIPTA_AGENT_MAX_TOOL_CALLS", 6),
         test_mode=_bool("NIPTA_TEST_MODE", False),
+        demo_reset_enabled=_bool("NIPTA_DEMO_RESET_ENABLED", True),
         operator_pin=_str("NIPTA_OPERATOR_PIN", "2468"),
         session_secret=_str("NIPTA_SESSION_SECRET", ""),
         database_path=_str("NIPTA_DATABASE_PATH", "nipta.db"),
@@ -230,4 +232,5 @@ def capability_report(s: Settings | None = None) -> dict:
                                    else "KEY_FILE_MISSING" if s.cashfree_2fa_public_key_path else "OFF"),
         "require_live_verification": s.require_live_verification,
         "test_mode": s.test_mode,
+        "demo_reset": s.demo_reset_enabled,
     }

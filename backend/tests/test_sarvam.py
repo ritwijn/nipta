@@ -307,3 +307,33 @@ def test_add_bills_to_current_batch_keeps_earlier_bills(client, conn, sarvam_moc
     numbers = [i["invoice_number"] for i in client.get(f"/api/batches/{bid}").json()["invoices"]]
     assert len(numbers) == 8 and "CP-230" in numbers and "CP-231" in numbers  # earlier upload still listed
     assert len(client.get("/api/batches").json()) == 1  # no extra batches created
+
+
+def test_process_reports_new_invoice_ids_and_upload_flag(client, conn, sarvam_mock):
+    live(sarvam_vision_enabled=True)
+    bid = conn.batch_id
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-240"}
+    client.post(f"/api/batches/{bid}/documents", files={"files": ("new.jpg", io.BytesIO(b"\xff\xd8\xff new"), "image/jpeg")})
+    r = client.post(f"/api/batches/{bid}/process").json()
+    assert len(r["new_invoice_ids"]) == 1
+    batch = client.get(f"/api/batches/{bid}").json()
+    new = next(i for i in batch["invoices"] if i["invoice_id"] == r["new_invoice_ids"][0])
+    assert new["is_upload"] is True and new["ingested_at"] > 0
+    assert all(not i["is_upload"] for i in batch["invoices"] if i["invoice_id"].startswith("INV-"))  # demo fixtures
+    assert client.post(f"/api/batches/{bid}/process").json()["new_invoice_ids"] == []
+
+
+@pytest.mark.parametrize("text,lang,expect", [
+    ("how many are safe for today", "en", "2 ready to pay"),
+    ("ಇಂದು ಎಷ್ಟು ಬಿಲ್‌ಗಳು ಸುರಕ್ಷಿತ?", "kn", "2 ಪಾವತಿಗೆ ಸಿದ್ಧ"),
+    ("आज कितने बिल सुरक्षित हैं?", "hi", "2 भुगतान के लिए तैयार"),
+])
+def test_how_many_safe_today_keyword_router(conn, text, lang, expect):
+    out = agent.handle_message(conn, "OP", conn.batch_id, text, lang)
+    assert [c["tool"] for c in out["tool_calls"]] == ["rank_eligible_invoices"]
+    assert expect in out["reply"]
+
+
+def test_why_question_about_a_bill_still_explains_it(conn):
+    out = agent.handle_message(conn, "OP", conn.batch_id, "why is INV-C not safe today?", "en")
+    assert [(c["tool"], c["invoice_id"]) for c in out["tool_calls"]] == [("explain_findings", "INV-C")]

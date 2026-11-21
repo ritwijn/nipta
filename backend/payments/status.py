@@ -135,6 +135,14 @@ def apply_provider_result_locked(conn: sqlite3.Connection, attempt_id: str, stat
         # A late, out-of-order event must not overwrite the provider status that moved the attempt.
         conn.execute("UPDATE payment_attempts SET last_provider_status=?, last_provider_code=? WHERE attempt_id=?",
                      (status, status_code, attempt_id))
+        raw = evidence.get("raw")
+        if isinstance(raw, dict) and raw:
+            # Merge so fields that appear only on some responses (e.g. the bank UTR) are kept.
+            current = db.row(conn, "SELECT provider_details_json FROM payment_attempts WHERE attempt_id=?",
+                             (attempt_id,))["provider_details_json"]
+            merged = {**(json.loads(current) if current else {}), **raw}
+            conn.execute("UPDATE payment_attempts SET provider_details_json=? WHERE attempt_id=?",
+                         (json.dumps(merged, ensure_ascii=False, default=str), attempt_id))
     return result
 
 
@@ -222,7 +230,7 @@ def process_webhook(conn: sqlite3.Connection, raw_body: bytes, timestamp: str | 
         else:
             result = apply_provider_result_locked(
                 conn, attempt["attempt_id"], data.get("status"), data.get("status_code"), "WEBHOOK",
-                {"event_type": body.get("type"), "event_time": body.get("event_time")},
+                {"event_type": body.get("type"), "event_time": body.get("event_time"), "raw": cf.redact(data)},
                 str(data["cf_transfer_id"]) if data.get("cf_transfer_id") is not None else None,
             )
             outcome = "IGNORED_BACKWARD" if result == "IGNORED_BACKWARD" else "APPLIED"

@@ -36,6 +36,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     # Databases created before vendors.phone existed.
     if "phone" not in {r[1] for r in conn.execute("PRAGMA table_info(vendors)")}:
         conn.execute("ALTER TABLE vendors ADD COLUMN phone TEXT")
+    # Databases created before payment_attempts.provider_details_json existed.
+    if "provider_details_json" not in {r[1] for r in conn.execute("PRAGMA table_info(payment_attempts)")}:
+        conn.execute("ALTER TABLE payment_attempts ADD COLUMN provider_details_json TEXT")
 
 
 @contextmanager

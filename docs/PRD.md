@@ -268,7 +268,14 @@ Missing required monetary fields → `DOCUMENT_INCOMPLETE`; a present field belo
 
 ## 9. Cash budget and micro/small supplier deadlines (built)
 
-A seeded budget (₹9,000 default, editable) and a greedy pass over **ELIGIBLE** bills with no active or completed payment. The sort order is: statutory-risk flag (only when `deadline_basis_verified = 1`), then overdue days, then earliest due date, then invoice ID. Skipped bills show "exceeds remaining budget" with the remaining amount; excluded bills show their decision reason. An unverified basis shows "Due-date basis unverified". The plan is labelled a decision aid, not an optimal allocation and not legal or tax advice. Each payment is still approved individually.
+A seeded budget (₹10,00,000 default for the demo, editable) and a greedy pass over **ELIGIBLE** bills with no active or completed payment. The sort order is: statutory-risk flag (only when `deadline_basis_verified = 1`), then overdue days, then earliest due date, then invoice ID. Skipped bills show "exceeds remaining budget" with the remaining amount; excluded bills show their decision reason. An unverified basis shows "Due-date basis unverified". The plan is labelled a decision aid, not an optimal allocation and not legal or tax advice. Payments are approved either one by one or through the bulk review (§9, bulk prepare, approve and send).
+
+### Bulk prepare, approve and send (21 Nov 2026, product decision)
+
+- **Prepare:** "Prepare plan payments" (bills in this Friday's plan, within the cash budget) or "Prepare all ready" (every eligible bill) creates one proposal per bill; existing proposals are reported, ineligible or already-paid bills are skipped with the reason.
+- **Approve:** "Review & approve N" opens one review table (vendor, bill, masked account, amount, payout mode, verification label, expiry) with checkboxes and a live total. One confirmation approves the selection, and the server requires the **confirmed total to match** the selected proposals or approves nothing. Each proposal is still approved **on its own snapshot hash** with the usual freshness checks; a stale or expired one is refused individually while the others proceed.
+- **Send:** "Send N approved" (also offered right after a bulk approval) dispatches each approved proposal through the normal single-payout path: one reservation and one fixed transfer ID each, sequentially. One failure doesn't stop the rest, and repeating the action never creates a second transfer.
+- Routes: `GET /api/batches/{id}/approval-queue`, `POST /api/batches/{id}/proposals`, `POST /api/batches/{id}/approve-bulk`, `POST /api/batches/{id}/execute-bulk`, all signed-in only and audited (`BULK_PREPARE`, `BULK_APPROVE`, `BULK_EXECUTE`). No chat or voice path can approve or send.
 
 ## 10. Storage model (as built)
 

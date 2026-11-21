@@ -45,7 +45,7 @@ def seed_registry(conn: sqlite3.Connection) -> None:
                     (db.new_id("ver"), b["beneficiary_id"], 1, "SEEDED_MOCK", ver["account_status"],
                      ver["name_match_result"], ver.get("name_at_bank"), None, ts),
                 )
-        db.set_setting(conn, "cash_budget_paise", "900000")
+        db.set_setting(conn, "cash_budget_paise", "100000000")
         db.audit(conn, "seed", "SEEDED_REGISTRY", None, {"vendors": len(data["vendors"])})
 
 
@@ -56,6 +56,25 @@ def seed_all(conn: sqlite3.Connection, process: bool = True) -> str:
         batch_id = pipeline.load_fixture_batch(conn, "seed")
     if process:
         pipeline.process_batch(conn, batch_id)
+    return batch_id
+
+
+def reset_demo(conn: sqlite3.Connection, actor: str) -> str:
+    """Wipe all data and re-seed the demo while the server keeps running (UI "Reset demo data").
+
+    Cashfree transfers that were already sent are not touched at Cashfree; Nipta simply stops tracking them.
+    """
+    tables = [r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    conn.execute("PRAGMA foreign_keys = OFF")  # cannot change inside a transaction; re-enabled below
+    try:
+        with db.immediate(conn):
+            for t in tables:
+                conn.execute(f'DELETE FROM "{t}"')
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+    batch_id = seed_all(conn)
+    db.audit(conn, actor, "DEMO_RESET", batch_id, {"cleared_tables": len(tables)}, batch_id=batch_id)
     return batch_id
 
 

@@ -55,9 +55,17 @@ class ProviderDuplicateTransferId(Exception):
 _REDACT = {"bank_account_number", "beneficiary_account", "account_number", "x-client-secret"}
 
 
+def _mask(key: str, value):
+    if key in ("bank_account_number", "beneficiary_account", "account_number") and isinstance(value, (str, int)):
+        digits = "".join(ch for ch in str(value) if ch.isdigit())
+        return f"••{digits[-4:]}" if len(digits) >= 4 else "[redacted]"
+    return "[redacted]"
+
+
 def redact(obj):
+    """Secrets removed; account numbers reduced to their last four digits."""
     if isinstance(obj, dict):
-        return {k: ("[redacted]" if k in _REDACT else redact(v)) for k, v in obj.items()}
+        return {k: (_mask(k, v) if k in _REDACT else redact(v)) for k, v in obj.items()}
     if isinstance(obj, list):
         return [redact(v) for v in obj]
     return obj

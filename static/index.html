@@ -20,7 +20,7 @@
     </div>
     <div class="tile"><span class="label">This Friday</span><span class="value" id="fridayTile">—</span></div>
     <div class="tile"><span class="label">Cash available</span><span class="value" id="cashTile">—</span></div>
-    <details class="caps-menu"><summary id="capsSummary" class="chip">Sandbox</summary><div id="capabilities" class="caps" aria-label="Provider status"></div></details>
+    <details class="caps-menu"><summary id="capsSummary" class="chip">Sandbox</summary><div id="capabilities" class="caps" aria-label="Provider status"></div><div id="demoTools" class="demo-tools"></div></details>
     <div class="session">
       <select id="lang" aria-label="Language">
         <option value="en">EN</option>
@@ -98,7 +98,7 @@
         <div class="panel-head">
           <h2>This Friday's plan</h2>
           <form id="planForm" class="plan-form">
-            <label>₹ <input id="budget" type="number" min="0" step="100" value="9000" aria-label="Cash budget in rupees"></label>
+            <label>₹ <input id="budget" type="number" min="0" step="100" value="1000000" aria-label="Cash budget in rupees"></label>
             <button type="submit" class="small">Plan</button>
           </form>
         </div>
@@ -116,6 +116,17 @@
       </section>
     </aside>
   </main>
+
+  <dialog id="bulkDialog">
+    <div class="vendor-form bulk-form">
+      <h2 id="bulkTitle">Review and approve payments</h2>
+      <p class="small muted" id="bulkIntro"></p>
+      <div class="table-wrap"><table class="bulk-table"><thead id="bulkHead"></thead><tbody id="bulkRows"></tbody></table></div>
+      <p class="bulk-total" id="bulkTotal"></p>
+      <div id="bulkMsg" class="small"></div>
+      <div class="btn-row" id="bulkActions"></div>
+    </div>
+  </dialog>
 
   <dialog id="vendorDialog">
     <form id="vendorForm" method="dialog" class="vendor-form">

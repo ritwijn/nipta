@@ -24,7 +24,7 @@ from .payments import approval, execution, status
 from .rules import beneficiaries, priority
 from .rules import normalize as N
 from .rules.normalize import format_inr, mask_account, to_ascii_digits
-from .schemas import (AgentMessageRequest, ApproveRequest, BankChangeRequest, ProviderEventRequest,
+from .schemas import (AgentMessageRequest, ApproveRequest, BankChangeRequest, BulkApproveRequest, BulkExecuteRequest, BulkProposalRequest, ProviderEventRequest,
                       RejectBankChangeRequest, ResolveFindingRequest, SessionRequest, StructuredInvoiceRequest,
                       TTSRequest, VendorCallResult)
 
@@ -124,7 +124,39 @@ def _public_attempt(a: dict | None) -> dict | None:
     keys = ("attempt_id", "proposal_id", "invoice_id", "transfer_id", "amount_paise", "mode", "status",
             "cf_transfer_id", "last_provider_status", "last_provider_code", "last_error", "dispatch_started_at",
             "response_recorded_at", "last_checked_at", "created_at")
-    return {k: a[k] for k in keys}
+    out = {k: a[k] for k in keys}
+    out["provider_details"] = _provider_details(a.get("provider_details_json"))
+    return out
+
+
+def _provider_details(raw_json: str | None) -> dict | None:
+    """What Cashfree returned for this transfer (redacted), with the commonly needed fields picked out."""
+    if not raw_json:
+        return None
+    raw = json.loads(raw_json)
+    ben = raw.get("beneficiary_details") or {}
+    inst = ben.get("beneficiary_instrument_details") or {}
+    return {
+        "cf_transfer_id": raw.get("cf_transfer_id"),
+        "transfer_id": raw.get("transfer_id"),
+        "status": raw.get("status"),
+        "status_code": raw.get("status_code"),
+        "status_description": raw.get("status_description"),
+        "utr": raw.get("transfer_utr") or raw.get("utr"),
+        "transfer_amount": raw.get("transfer_amount"),
+        "currency": raw.get("currency") or raw.get("transfer_currency") or None,
+        "transfer_mode": raw.get("transfer_mode"),
+        "service_charge": raw.get("transfer_service_charge"),
+        "service_tax": raw.get("transfer_service_tax"),
+        "beneficiary_id": ben.get("beneficiary_id"),
+        "beneficiary_account": inst.get("bank_account_number"),
+        "beneficiary_ifsc": inst.get("bank_ifsc"),
+        "beneficiary_vpa": inst.get("vpa"),
+        "fundsource_id": raw.get("fundsource_id"),
+        "added_on": raw.get("added_on"),
+        "updated_on": raw.get("updated_on"),
+        "raw": raw,
+    }
 
 
 def invoice_summary(conn, inv: dict, lang: str = "en") -> dict:
@@ -150,6 +182,9 @@ def invoice_summary(conn, inv: dict, lang: str = "en") -> dict:
         "attempt": _public_attempt(attempt),
         "proposal": _active_proposal(conn, inv["invoice_id"]),
         "extraction_source": doc["extraction_source"] if doc else None,
+        "ingested_at": inv["ingested_at"],
+        "ingested_seq": inv["ingested_seq"],
+        "is_upload": bool(doc) and doc["mime"] in ("application/pdf", "image/png", "image/jpeg"),
         "document_name": doc["original_name"] if doc else None,
         "findings": [
             {
@@ -330,8 +365,10 @@ def process_batch(batch_id: str, operator: str = Depends(require_session),
         raise NiptaError("NOT_FOUND", "Batch not found", 404)
     new_docs = db.row(conn, "SELECT COUNT(*) AS n FROM documents d WHERE d.batch_id=? AND NOT EXISTS"
                             " (SELECT 1 FROM invoices i WHERE i.document_id=d.document_id)", (batch_id,))["n"]
+    before = {r["invoice_id"] for r in conn.execute("SELECT invoice_id FROM invoices WHERE batch_id=?", (batch_id,))}
     invoices = pipeline.process_batch(conn, batch_id)
-    return {"batch_id": batch_id, "invoices": invoices, "new_documents": new_docs,
+    new_ids = [i["invoice_id"] for i in invoices if i["invoice_id"] not in before]
+    return {"batch_id": batch_id, "invoices": invoices, "new_documents": new_docs, "new_invoice_ids": new_ids,
             "summary": explain.batch_summary(conn, batch_id)}
 
 
@@ -346,7 +383,7 @@ def get_batch(batch_id: str, lang: str = "en", conn: sqlite3.Connection = Depend
                                  " (SELECT 1 FROM invoices i WHERE i.document_id=d.document_id)", (batch_id,))
     return {**b, "invoices": [invoice_summary(conn, i, lang) for i in invs], "unprocessed_documents": pending_docs,
             "summary": explain.batch_summary(conn, batch_id),
-            "cash_budget_paise": int(db.get_setting(conn, "cash_budget_paise", "900000"))}
+            "cash_budget_paise": int(db.get_setting(conn, "cash_budget_paise", "100000000"))}
 
 
 @app.post("/api/invoices")
@@ -623,7 +660,7 @@ def reject_bank_change(request_id: str, body: RejectBankChangeRequest, operator:
 def payment_plan(batch_id: str, cash_budget_paise: int | None = Query(default=None, ge=0),
                  conn: sqlite3.Connection = Depends(get_conn)):
     budget = cash_budget_paise if cash_budget_paise is not None else int(db.get_setting(conn, "cash_budget_paise",
-                                                                                        "900000"))
+                                                                                        "100000000"))
     return priority.payment_plan(conn, batch_id, budget)
 
 
@@ -632,6 +669,130 @@ def create_proposal(invoice_id: str, lang: str = "en", operator: str = Depends(r
                     conn: sqlite3.Connection = Depends(get_conn)):
     p = approval.create_proposal(conn, invoice_id, operator)
     return _proposal_view(conn, p["proposal_id"], lang)
+
+
+@app.post("/api/batches/{batch_id}/proposals")
+def prepare_bulk(batch_id: str, body: BulkProposalRequest, operator: str = Depends(require_session),
+                 conn: sqlite3.Connection = Depends(get_conn)):
+    """Prepare proposals for this Friday's plan (within the cash budget) or for every eligible bill.
+
+    Preparation only: each payment still needs its own authenticated approval and execute click.
+    """
+    if not db.row(conn, "SELECT 1 AS x FROM batches WHERE batch_id=?", (batch_id,)):
+        raise NiptaError("NOT_FOUND", "Batch not found", 404)
+    if body.scope == "plan":
+        budget = body.cash_budget_paise if body.cash_budget_paise is not None else int(
+            db.get_setting(conn, "cash_budget_paise", "100000000"))
+        targets = [e["invoice_id"] for e in priority.payment_plan(conn, batch_id, budget)["selected"]]
+    else:
+        targets = [r["invoice_id"] for r in conn.execute(
+            "SELECT invoice_id FROM invoices WHERE batch_id=? AND decision='ELIGIBLE' ORDER BY ingested_seq",
+            (batch_id,))]
+    created, already, skipped = [], [], []
+    for invoice_id in targets:
+        try:
+            p = approval.create_proposal(conn, invoice_id, operator)
+            created.append({"invoice_id": invoice_id, "proposal_id": p["proposal_id"],
+                            "amount_paise": p["snapshot"]["amount_paise"]})
+        except NiptaError as exc:
+            if exc.code == "PROPOSAL_EXISTS":
+                already.append({"invoice_id": invoice_id, "proposal_id": (exc.detail or {}).get("proposal_id")})
+            else:
+                skipped.append({"invoice_id": invoice_id, "code": exc.code, "reason": exc.message})
+    db.audit(conn, operator, "BULK_PREPARE", batch_id,
+             {"scope": body.scope, "created": [c["invoice_id"] for c in created],
+              "already_prepared": [a["invoice_id"] for a in already], "skipped": [s["invoice_id"] for s in skipped]},
+             batch_id=batch_id)
+    return {"scope": body.scope, "created": created, "already_prepared": already, "skipped": skipped,
+            "total_paise": sum(c["amount_paise"] for c in created)}
+
+
+def _batch_or_404(conn, batch_id: str) -> None:
+    if not db.row(conn, "SELECT 1 AS x FROM batches WHERE batch_id=?", (batch_id,)):
+        raise NiptaError("NOT_FOUND", "Batch not found", 404)
+
+
+@app.get("/api/batches/{batch_id}/approval-queue")
+def approval_queue(batch_id: str, lang: str = "en", operator: str = Depends(require_session),
+                   conn: sqlite3.Connection = Depends(get_conn)):
+    """Prepared proposals waiting for approval, and approved ones not yet sent."""
+    _batch_or_404(conn, batch_id)
+    rows = db.rows(conn, "SELECT p.proposal_id FROM payment_proposals p JOIN invoices i ON i.invoice_id=p.invoice_id"
+                         " WHERE i.batch_id=? AND p.state IN ('READY_FOR_APPROVAL','AUTHORIZED')"
+                         " AND NOT EXISTS (SELECT 1 FROM payment_attempts a WHERE a.proposal_id=p.proposal_id)"
+                         " ORDER BY p.created_at", (batch_id,))
+    views = [_proposal_view(conn, r["proposal_id"], lang) for r in rows]
+    now = db.now()
+    items = [{
+        "proposal_id": v["proposal_id"], "invoice_id": v["invoice_id"], "state": v["state"],
+        "vendor": v["vendor"], "invoice_number": v["invoice_number"],
+        "amount_paise": v["snapshot"]["amount_paise"], "amount_display": v["amount_display"],
+        "beneficiary_display": v["beneficiary_display"], "verification_label": v["verification_label"],
+        "dispatch_mode": v["dispatch_mode"], "snapshot_hash": v["snapshot_hash"],
+        "expires_at": v["expires_at"], "expired": now > v["expires_at"],
+    } for v in views]
+    return {"to_approve": [i for i in items if i["state"] == "READY_FOR_APPROVAL"],
+            "to_send": [i for i in items if i["state"] == "AUTHORIZED"]}
+
+
+@app.post("/api/batches/{batch_id}/approve-bulk")
+def approve_bulk(batch_id: str, body: BulkApproveRequest, operator: str = Depends(require_session),
+                 conn: sqlite3.Connection = Depends(get_conn)):
+    """Approve several proposals with one confirmation. Each is re-checked and approved on its own snapshot."""
+    _batch_or_404(conn, batch_id)
+    ids = [i.proposal_id for i in body.items]
+    if len(set(ids)) != len(ids):
+        raise NiptaError("DUPLICATE_ITEMS", "A proposal appears more than once", 400)
+    total = 0
+    for item in body.items:
+        p = db.row(conn, "SELECT p.snapshot_json FROM payment_proposals p JOIN invoices i ON i.invoice_id=p.invoice_id"
+                         " WHERE p.proposal_id=? AND i.batch_id=?", (item.proposal_id, batch_id))
+        if p is None:
+            raise NiptaError("NOT_FOUND", f"Proposal {item.proposal_id} is not in this batch", 404)
+        total += json.loads(p["snapshot_json"])["amount_paise"]
+    if total != body.confirm_total_paise:
+        raise NiptaError("TOTAL_MISMATCH", f"Selected proposals total {format_inr(total)}, but "
+                         f"{format_inr(body.confirm_total_paise)} was confirmed. Nothing was approved.", 409)
+    results = []
+    for item in body.items:
+        try:
+            v = approval.approve(conn, item.proposal_id, operator, item.snapshot_hash)
+            results.append({"proposal_id": item.proposal_id, "invoice_id": v["invoice_id"], "outcome": "AUTHORIZED"})
+        except NiptaError as exc:
+            inv = db.row(conn, "SELECT invoice_id FROM payment_proposals WHERE proposal_id=?", (item.proposal_id,))
+            results.append({"proposal_id": item.proposal_id, "invoice_id": inv["invoice_id"] if inv else None,
+                            "outcome": exc.code, "reason": exc.message})
+    db.audit(conn, operator, "BULK_APPROVE", batch_id,
+             {"confirmed_total_paise": body.confirm_total_paise,
+              "approved": [r["invoice_id"] for r in results if r["outcome"] == "AUTHORIZED"],
+              "refused": [{"invoice_id": r["invoice_id"], "code": r["outcome"]} for r in results
+                          if r["outcome"] != "AUTHORIZED"]}, batch_id=batch_id)
+    return {"results": results, "approved": sum(r["outcome"] == "AUTHORIZED" for r in results)}
+
+
+@app.post("/api/batches/{batch_id}/execute-bulk")
+def execute_bulk(batch_id: str, body: BulkExecuteRequest, lang: str = "en", operator: str = Depends(require_session),
+                 conn: sqlite3.Connection = Depends(get_conn)):
+    """Send each approved proposal once (same single-payout path, own fixed transfer ID). One failure doesn't stop the rest."""
+    _batch_or_404(conn, batch_id)
+    results = []
+    for pid in dict.fromkeys(body.proposal_ids):
+        p = db.row(conn, "SELECT p.invoice_id FROM payment_proposals p JOIN invoices i ON i.invoice_id=p.invoice_id"
+                         " WHERE p.proposal_id=? AND i.batch_id=?", (pid, batch_id))
+        if p is None:
+            results.append({"proposal_id": pid, "outcome": "NOT_FOUND"})
+            continue
+        try:
+            a = execution.execute_approved_payout(conn, pid, operator)
+            results.append({"proposal_id": pid, "invoice_id": p["invoice_id"], "outcome": a["status"],
+                            "mode": a["mode"], "transfer_id": a["transfer_id"],
+                            "status_text": explain.explain_attempt(a, lang)})
+        except NiptaError as exc:
+            results.append({"proposal_id": pid, "invoice_id": p["invoice_id"], "outcome": exc.code, "reason": exc.message})
+    db.audit(conn, operator, "BULK_EXECUTE", batch_id,
+             {"results": [{"invoice_id": r.get("invoice_id"), "outcome": r["outcome"]} for r in results]},
+             batch_id=batch_id)
+    return {"results": results}
 
 
 @app.get("/api/proposals/{proposal_id}", dependencies=[Depends(require_session)])
@@ -762,6 +923,34 @@ def audit_log(batch_id: str | None = None, object_id: str | None = None, limit: 
     for e in out:
         e["detail"] = json.loads(e.pop("detail_json"))
     return out
+
+
+@app.get("/api/demo/reset-preview")
+def demo_reset_preview(operator: str = Depends(require_session), conn: sqlite3.Connection = Depends(get_conn)):
+    """What a reset would remove, so the confirmation can say it plainly."""
+    if not get_settings().demo_reset_enabled:
+        raise HTTPException(404, "Not found")
+    count = lambda sql: db.row(conn, sql)["n"]
+    return {
+        "bills": count("SELECT COUNT(*) AS n FROM invoices"),
+        "uploads": count("SELECT COUNT(*) AS n FROM documents WHERE mime IN ('application/pdf','image/png','image/jpeg')"),
+        "approved_vendors": count("SELECT COUNT(*) AS n FROM audit_events WHERE action='VENDOR_APPROVED'"),
+        "payments": count("SELECT COUNT(*) AS n FROM payment_attempts"),
+        "sandbox_in_flight": count("SELECT COUNT(*) AS n FROM payment_attempts WHERE mode='CASHFREE_SANDBOX'"
+                                   " AND status IN ('REQUEST_RESERVED','INITIATED','PENDING','UNKNOWN')"),
+    }
+
+
+@app.post("/api/demo/reset")
+def demo_reset(body: dict, operator: str = Depends(require_session), conn: sqlite3.Connection = Depends(get_conn)):
+    """Wipe all data and reload the six demo bills. Needs the operator to type RESET."""
+    if not get_settings().demo_reset_enabled:
+        raise HTTPException(404, "Not found")
+    if (body or {}).get("confirm") != "RESET":
+        raise NiptaError("CONFIRMATION_REQUIRED", 'Type RESET to confirm', 400)
+    from .seed import reset_demo
+    batch_id = reset_demo(conn, operator)
+    return {"batch_id": batch_id, "bills": db.row(conn, "SELECT COUNT(*) AS n FROM invoices")["n"]}
 
 
 @app.post("/api/dev/provider-event")

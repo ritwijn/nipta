@@ -217,6 +217,14 @@ SUMMARY_HEAD = {
     "kn": "{n} ಇನ್‌ವಾಯ್ಸ್‌ಗಳು: {e} ಪಾವತಿಗೆ ಸಿದ್ಧ, {r} ಪರಿಶೀಲನೆ ಅಗತ್ಯ, {b} ತಡೆಹಿಡಿಯಲಾಗಿದೆ.",
     "hi": "{n} इनवॉइस: {e} भुगतान के लिए तैयार, {r} समीक्षा आवश्यक, {b} रोके गए।",
 }
+SUMMARY_SENT = {
+    "en": " {s} already paid or sent.",
+    "kn": " {s} ಈಗಾಗಲೇ ಪಾವತಿಸಲಾಗಿದೆ ಅಥವಾ ಕಳುಹಿಸಲಾಗಿದೆ.",
+    "hi": " {s} का भुगतान हो चुका या भेजा गया।",
+}
+SENT_LABEL = {"en": "Paid or sent", "kn": "ಪಾವತಿಸಲಾಗಿದೆ/ಕಳುಹಿಸಲಾಗಿದೆ", "hi": "भुगतान हुआ/भेजा गया"}
+# Attempt states that mean the bill is no longer "ready to pay".
+SENT_STATES = ("REQUEST_RESERVED", "INITIATED", "PENDING", "UNKNOWN", "COMPLETED", "SIMULATED")
 
 
 def batch_summary(conn: sqlite3.Connection, batch_id: str) -> dict:
@@ -232,22 +240,38 @@ def batch_summary(conn: sqlite3.Connection, batch_id: str) -> dict:
 
 
 def explain_batch(conn: sqlite3.Connection, batch_id: str, lang: str = "en") -> str:
-    """Which invoices are valid, which need review, which are blocked, with the reason for each hold."""
+    """Which invoices are valid, which need review, which are blocked, and which are already paid or sent."""
     lang = _lang(lang)
-    s = batch_summary(conn, batch_id)["by_decision"]
-    lines = [SUMMARY_HEAD[lang].format(n=sum(s.values()), e=s["ELIGIBLE"], r=s["REVIEW"], b=s["BLOCKED"])]
     invs = db.rows(conn, "SELECT i.*, v.display_name FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id"
-                         " WHERE i.batch_id=? ORDER BY CASE i.decision WHEN 'ELIGIBLE' THEN 0 WHEN 'REVIEW' THEN 1"
-                         " ELSE 2 END, i.ingested_seq", (batch_id,))
+                         " WHERE i.batch_id=? ORDER BY i.ingested_seq DESC", (batch_id,))
+    sent = {}
     for inv in invs:
-        head = (f"{DECISION[inv['decision']][lang]}: {inv['invoice_id']} · "
-                f"{inv['display_name'] or inv['vendor_name_raw'] or '—'} · {format_inr(inv['stated_total_paise'])}")
+        a = db.row(conn, f"SELECT * FROM payment_attempts WHERE invoice_id=? AND status IN ({','.join('?' * len(SENT_STATES))})"
+                         " ORDER BY created_at DESC LIMIT 1", (inv["invoice_id"], *SENT_STATES))
+        if a and inv["decision"] == "ELIGIBLE":
+            sent[inv["invoice_id"]] = a
+    count = {"ELIGIBLE": 0, "REVIEW": 0, "BLOCKED": 0}
+    for inv in invs:
+        if inv["invoice_id"] not in sent:
+            count[inv["decision"]] += 1
+    head = SUMMARY_HEAD[lang].format(n=len(invs), e=count["ELIGIBLE"], r=count["REVIEW"], b=count["BLOCKED"])
+    if sent:
+        head += SUMMARY_SENT[lang].format(s=len(sent))
+    lines = [head]
+    order = {"ELIGIBLE": 0, "REVIEW": 1, "BLOCKED": 2}
+    for inv in sorted(invs, key=lambda i: (3 if i["invoice_id"] in sent else order[i["decision"]])):
+        name = f"{inv['invoice_id']} · {inv['display_name'] or inv['vendor_name_raw'] or '—'} · {format_inr(inv['stated_total_paise'])}"
+        if inv["invoice_id"] in sent:
+            a = sent[inv["invoice_id"]]
+            lines.append(f"• {SENT_LABEL[lang]}: {name} — {STATUS.get(a['status'], {}).get(lang, a['status'])} ({a['transfer_id']})")
+            continue
+        head_line = f"{DECISION[inv['decision']][lang]}: {name}"
         f = db.row(conn, "SELECT * FROM findings WHERE invoice_id=? AND status='OPEN'"
                          " ORDER BY CASE severity WHEN 'BLOCK' THEN 0 ELSE 1 END, created_at LIMIT 1",
                    (inv["invoice_id"],))
         if f and inv["decision"] != "ELIGIBLE":
-            head += " — " + explain_finding(f["code"], json.loads(f["evidence_json"]), f["matched_invoice_id"], lang)
-        lines.append("• " + head)
+            head_line += " — " + explain_finding(f["code"], json.loads(f["evidence_json"]), f["matched_invoice_id"], lang)
+        lines.append("• " + head_line)
     return "\n".join(lines)
 
 

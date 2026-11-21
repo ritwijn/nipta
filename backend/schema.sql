@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
   dispatch_started_at   INTEGER,
   response_recorded_at  INTEGER,
   last_checked_at       INTEGER,
+  provider_details_json TEXT,                 -- latest Cashfree transfer response (redacted, merged)
   created_at            INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_attempt_per_proposal ON payment_attempts(proposal_id);

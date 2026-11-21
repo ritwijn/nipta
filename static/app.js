@@ -81,6 +81,7 @@ async function loadHealth() {
   const h = await api("/api/health");
   const caps = h.capabilities;
   state.caps = caps;
+  renderDemoTools();
   $("#voiceHint").textContent = caps.sarvam_stt === "LIVE"
     ? "Speak or type in Kannada, Hindi or English. Tap the mic again to send. Asking never pays."
     : "Type in Kannada, Hindi or English (voice is off). Asking never pays.";
@@ -161,6 +162,51 @@ $("#lang").addEventListener("change", () => {
   if (state.proposalId) loadProposal(state.proposalId);
 });
 
+// ---- demo reset (wipes all data, reloads the six demo bills) --------------------
+
+function renderDemoTools() {
+  const el = $("#demoTools");
+  if (!el) return;
+  if (!state.caps || !state.caps.demo_reset) { el.innerHTML = ""; return; }
+  el.innerHTML = `<button type="button" class="secondary small" id="demoResetBtn" data-auth>Reset demo data…</button><div id="demoResetBox"></div>`;
+  renderSession();
+  $("#demoResetBtn").onclick = openDemoReset;
+}
+
+async function openDemoReset() {
+  const box = $("#demoResetBox");
+  let p;
+  try { p = await api("/api/demo/reset-preview"); } catch (err) { toast(err.message); return; }
+  box.innerHTML = `<form class="inline-ask" id="demoResetForm">
+      <label class="small">This removes all ${p.bills} bills (${p.uploads} uploaded), ${p.approved_vendors} vendor approval(s) and
+        ${p.payments} payment record(s), then reloads the six demo bills.
+        ${p.sandbox_in_flight ? `<b>${p.sandbox_in_flight} Cashfree sandbox payout(s) still in progress will no longer be tracked</b> (nothing is cancelled at Cashfree).` : ""}
+        Type <b>RESET</b> to confirm.</label>
+      <input class="ask-input" id="demoResetInput" autocomplete="off" placeholder="RESET">
+      <div class="ask-row"><button type="submit" class="small danger" id="demoResetGo">Reset demo data</button>
+        <button type="button" class="secondary small" id="demoResetCancel">Cancel</button><span class="small bad-text" id="demoResetErr"></span></div>
+    </form>`;
+  $("#demoResetInput").focus();
+  $("#demoResetCancel").onclick = () => { box.innerHTML = ""; };
+  $("#demoResetForm").onsubmit = async (e) => {
+    e.preventDefault();
+    if ($("#demoResetInput").value.trim() !== "RESET") { $("#demoResetErr").textContent = "Type RESET exactly."; return; }
+    try {
+      const r = await busy($("#demoResetGo"), "Resetting…", () => api("/api/demo/reset", { method: "POST", json: { confirm: "RESET" } }));
+      box.innerHTML = "";
+      if (typeof stopPolling === "function") stopPolling();
+      clearTimeout(state.pollTimer);
+      state.selected = null; state.proposalId = null; state.batchId = r.batch_id;
+      $("#detail").hidden = true; $("#approval").hidden = true;
+      if ($("#welcome")) $("#welcome").hidden = false;
+      await loadBatches(r.batch_id);
+      await loadVendors();
+      const menu = $("#demoTools").closest("details"); if (menu) menu.open = false;
+      toast(`Demo data reset: ${r.bills} demo bills loaded.`);
+    } catch (err) { $("#demoResetErr").textContent = err.message; }
+  };
+}
+
 // ---- batches ----------------------------------------------------------------
 
 async function loadBatches(selectId) {
@@ -188,24 +234,40 @@ const OVERLAY_CLASS = { PAID: "ok", PAYMENT_PENDING: "info", PAYMENT_UNKNOWN: "w
 async function refreshBatch() {
   if (!state.batchId) return;
   const b = await api(`/api/batches/${state.batchId}?${lq()}`);
+  // Newest first everywhere bills are listed (the plan keeps its own ranking).
+  b.invoices.sort((x, y) => (y.ingested_seq || 0) - (x.ingested_seq || 0));
   state.batch = b;
-  const groups = [["BLOCKED", "bad", "Blocked", "Blocked"], ["REVIEW", "warn", "Needs a check", "Check"], ["ELIGIBLE", "ok", "Safe to pay", "Safe"]];
+  // Group by where the bill is, not only by its check result: a paid ELIGIBLE bill is no longer "safe to pay".
+  const SENT = new Set(["PAID", "PAYMENT_PENDING", "PAYMENT_UNKNOWN", "SIMULATED"]);
+  const stage = (i) => (SENT.has(i.payment_overlay) ? "SENT" : i.decision);
+  const groups = [["BLOCKED", "bad", "Blocked", "Blocked"], ["REVIEW", "warn", "Needs a check", "Check"],
+    ["ELIGIBLE", "ok", "Safe to pay", "Safe"], ["SENT", "info", "Paid & sent", "Sent"]];
   const sum = (list) => list.reduce((t, i) => t + (i.stated_total_paise || 0), 0);
-  const by = (k) => b.invoices.filter((i) => i.decision === k);
+  const by = (k) => b.invoices.filter((i) => stage(i) === k);
   $("#batchSummary").innerHTML = groups.map(([k, cls, label, short]) => `
     <div class="stat"><span class="label"><span class="dot ${cls}"></span>${esc(short)}</span>
       <div class="n">${by(k).length}</div><div class="amt">${by(k).length ? inr(sum(by(k))) : "—"}</div></div>`).join("");
   const bill = (i) => {
     const open = i.findings.find((f) => f.status === "OPEN");
-    const why = i.payment_overlay ? i.payment_overlay.replace(/_/g, " ").toLowerCase()
-      : open ? open.explanation : `${i.invoice_number || ""}${i.due_date ? ` · due ${i.due_date}` : ""}`;
+    const ps = i.proposal && i.proposal.state;
+    const why = i.payment_overlay === "PAYMENT_FAILED" ? "last payment failed · can be paid again"
+      : i.payment_overlay ? i.payment_overlay.replace(/_/g, " ").toLowerCase()
+      : open ? open.explanation
+      : ps === "AUTHORIZED" ? "approved, ready to send"
+      : ps === "READY_FOR_APPROVAL" ? "prepared, ready to approve"
+      : `${i.invoice_number || ""}${i.due_date ? ` · due ${i.due_date}` : ""}`;
     const ini = (i.vendor || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
     return `<button class="bill ${i.invoice_id === state.selected ? "selected" : ""}" data-id="${esc(i.invoice_id)}">
       <span class="ini" aria-hidden="true">${esc(ini)}</span>
       <span class="name">${esc(i.vendor || "Unknown vendor")}</span><span class="amt">${inr(i.stated_total_paise)}</span>
-      <span class="why"><span class="tag ${DECISION_CLASS[i.decision]}">${esc(i.decision_label)}</span> ${esc(why)}</span></button>`;
+      <span class="why"><span class="tag ${stage(i) === "SENT" ? "muted" : DECISION_CLASS[i.decision]}">${esc(stage(i) === "SENT" ? (i.payment_overlay === "PAID" ? "Paid" : i.payment_overlay === "SIMULATED" ? "Simulated" : "Sent") : i.decision_label)}</span> ${esc(why)}</span></button>`;
   };
-  $("#billList").innerHTML = groups.filter(([k]) => by(k).length).map(([k, cls, label]) => `
+  const recent = b.invoices.filter((i) => i.is_upload).slice(0, 5);  // already newest first
+  const when = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const recentHtml = recent.length ? `
+    <div class="group-head"><span class="dot info"></span><span class="label">Recently added</span><span class="amt">${recent.length}</span></div>
+    <div class="bill-list">${recent.map((i) => bill(i).replace('<span class="why">', `<span class="why"><span class="tag muted">added ${esc(when(i.ingested_at))}</span> `)).join("")}</div>` : "";
+  $("#billList").innerHTML = recentHtml + groups.filter(([k]) => by(k).length).map(([k, cls, label]) => `
     <div class="group-head"><span class="dot ${cls}"></span><span class="label">${esc(label)}</span><span class="amt">${inr(sum(by(k)))}</span></div>
     <div class="bill-list">${by(k).map(bill).join("")}</div>`).join("")
     + (b.invoices.length ? `<div class="total-row"><span class="label">All bills</span><span class="v">${inr(sum(b.invoices))}</span></div>`
@@ -255,7 +317,9 @@ async function runChecks(batchId) {
   await loadBatches(batchId);
   const what = r.new_documents ? `Read ${r.new_documents} new document(s).` : "No new documents; re-checked all invoices.";
   toast(`${what} ${summaryText(r.summary)}`);
-  if (r.invoices.length === 1) showInvoice(r.invoices[0].invoice_id);
+  const fresh = r.new_invoice_ids || [];
+  if (fresh.length === 1) showInvoice(fresh[0]);
+  else if (fresh.length > 1) toast(`${fresh.length} new bills checked: see "Recently added" at the top of the list.`);
   return r;
 }
 
@@ -287,6 +351,34 @@ $("#processBatch").addEventListener("click", async () => {
   if (!state.batchId) return;
   try { await runChecks(state.batchId); } catch (err) { toast(err.message); }
 });
+
+// Inline confirmation instead of window.prompt/confirm, which some browsers and in-app views block
+// (they then return null and the click silently does nothing).
+function inlineAsk(anchor, { label, placeholder = "", minLength = 0, confirmText = "Save", needsText = true }) {
+  return new Promise((resolve) => {
+    const host = anchor.closest(".finding") || anchor.parentElement;
+    host.querySelectorAll(".inline-ask").forEach((n) => n.remove());
+    const box = document.createElement("form");
+    box.className = "inline-ask";
+    box.innerHTML = `<label class="small">${esc(label)}</label>
+      ${needsText ? `<input class="ask-input" placeholder="${esc(placeholder)}" autocomplete="off">` : ""}
+      <div class="ask-row"><button type="submit" class="small">${esc(confirmText)}</button>
+        <button type="button" class="secondary small ask-cancel">Cancel</button>
+        <span class="small bad-text ask-err"></span></div>`;
+    host.appendChild(box);
+    const input = box.querySelector(".ask-input");
+    if (input) input.focus();
+    const done = (v) => { box.remove(); resolve(v); };
+    box.querySelector(".ask-cancel").onclick = () => done(null);
+    box.onsubmit = (e) => {
+      e.preventDefault();
+      if (!needsText) return done(true);
+      const v = input.value.trim();
+      if (v.length < minLength) { box.querySelector(".ask-err").textContent = `Please write at least ${minLength} characters.`; return; }
+      done(v);
+    };
+  });
+}
 
 // ---- invoice detail -----------------------------------------------------------
 
@@ -381,6 +473,7 @@ async function showInvoice(id) {
         <dt>Saved account</dt><dd class="mono">${esc(bank.saved_account || "none")} ${esc(bank.saved_ifsc || "")}</dd>
         <dt>Beneficiary</dt><dd class="mono">${esc(bank.saved_beneficiary || "—")}</dd>
         <dt>Payment</dt><dd>${d.attempt ? `<span class="chip ${OVERLAY_CLASS[d.payment_overlay] || "muted"}">${esc(d.attempt.status)}</span> <span class="mono small">${esc(d.attempt.transfer_id)}</span>` : "—"}</dd>
+        ${d.attempt && d.attempt.provider_details ? `<dt>Cashfree</dt><dd class="small"><span class="mono">${esc(d.attempt.provider_details.cf_transfer_id || "—")}</span>${d.attempt.provider_details.utr ? ` · UTR <span class="mono">${esc(d.attempt.provider_details.utr)}</span>` : ""} · ${esc([d.attempt.provider_details.status, d.attempt.provider_details.status_code].filter(Boolean).join(" / "))}</dd>` : ""}
       </dl>
     </div>
     ${checksHtml}
@@ -393,12 +486,14 @@ async function showInvoice(id) {
   renderSession();
   if (window.innerWidth < 900) el.scrollIntoView({ block: "start" });
   el.querySelectorAll("[data-resolve]").forEach((b) => b.onclick = async () => {
-    const reason = prompt("Why is this finding OK? (recorded in the audit log)");
+    const reason = await inlineAsk(b, { label: "Why is this finding OK? (recorded in the audit log)",
+      placeholder: "e.g. Called the supplier, confirmed account ending 6543", minLength: 3, confirmText: "Mark reviewed" });
     if (!reason) return;
     try {
-      await api(`/api/findings/${b.dataset.resolve}/resolve`, { method: "POST", json: { reason } });
+      const inv = await api(`/api/findings/${b.dataset.resolve}/resolve`, { method: "POST", json: { reason } });
       await refreshBatch();
-      showInvoice(id);
+      await showInvoice(id);
+      toast(`Marked reviewed. ${id} is now ${inv.decision}.`);
     } catch (err) { toast(err.message); }
   });
   $("#openSource").onclick = (ev) => { ev.preventDefault(); openSource(id); };
@@ -497,12 +592,15 @@ async function loadBankChanges(vendorId, invoiceId, changed) {
     } catch (err) { toast(err.message); }
   };
   el.querySelectorAll("[data-bc-approve]").forEach((b) => b.onclick = async () => {
-    if (!confirm("Make this the vendor's saved bank account? Invoices with the old account will be blocked.")) return;
+    const ok = await inlineAsk(b, { label: "Make this the vendor's saved bank account? Invoices with the old account will be blocked.",
+      needsText: false, confirmText: "Yes, approve new account" });
+    if (!ok) return;
     try { await api(`/api/bank-changes/${b.dataset.bcApprove}/approve`, { method: "POST" }); toast("Saved account updated"); await refreshBatch(); showInvoice(invoiceId); }
     catch (err) { toast(err.message); }
   });
   el.querySelectorAll("[data-bc-reject]").forEach((b) => b.onclick = async () => {
-    const reason = prompt("Why is this change rejected? (recorded in the audit log)");
+    const reason = await inlineAsk(b, { label: "Why is this change rejected? (recorded in the audit log)",
+      placeholder: "e.g. Supplier denied changing their account", minLength: 3, confirmText: "Reject change" });
     if (!reason) return;
     try { await api(`/api/bank-changes/${b.dataset.bcReject}/reject`, { method: "POST", json: { reason } }); loadBankChanges(vendorId, invoiceId, changed); }
     catch (err) { toast(err.message); }
@@ -520,6 +618,33 @@ async function openSource(id) {
     if (win) win.location.href = url; else window.open(url, "_blank");
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (err) { if (win) win.close(); toast(err.message); }
+}
+
+// Transaction details exactly as Cashfree returned them (account numbers masked server-side).
+function cashfreeDetails(a) {
+  const x = a && a.provider_details;
+  if (!x) return "";
+  const when = (s) => (s ? new Date(s.replace(" ", "T")).toLocaleString() : "—");
+  const row = (k, v, mono) => (v === null || v === undefined || v === "" ? "" : `<dt>${esc(k)}</dt><dd${mono ? ' class="mono"' : ""}>${esc(v)}</dd>`);
+  return `
+    <h3>Cashfree transaction</h3>
+    <dl class="kv small cf-details">
+      ${row("Cashfree reference", x.cf_transfer_id, true)}
+      ${row("Transfer ID", x.transfer_id, true)}
+      ${row("Status", [x.status, x.status_code].filter(Boolean).join(" · "))}
+      ${row("Bank reference (UTR)", x.utr, true)}
+      ${row("Amount", x.transfer_amount !== undefined && x.transfer_amount !== null ? `₹${Number(x.transfer_amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}${x.currency ? " " + x.currency : ""}` : "")}
+      ${row("Mode", x.transfer_mode ? String(x.transfer_mode).toUpperCase() : "")}
+      ${row("Service charge", x.service_charge)}${row("Service tax", x.service_tax)}
+      ${row("Beneficiary", [x.beneficiary_account, x.beneficiary_ifsc, x.beneficiary_vpa].filter(Boolean).join(" · "), true)}
+      ${row("Cashfree beneficiary ID", x.beneficiary_id, true)}
+      ${row("Fund source", x.fundsource_id, true)}
+      ${row("Created at Cashfree", x.added_on ? when(x.added_on) : "")}
+      ${row("Last updated at Cashfree", x.updated_on ? when(x.updated_on) : "")}
+      ${row("Last checked by Nipta", a.last_checked_at ? new Date(a.last_checked_at * 1000).toLocaleString() : "")}
+    </dl>
+    ${x.status_description ? `<p class="small cf-desc">${esc(x.status_description)}</p>` : ""}
+    <details><summary>All fields from Cashfree</summary><pre>${esc(JSON.stringify(x.raw, null, 2))}</pre></details>`;
 }
 
 // ---- approval card --------------------------------------------------------------
@@ -578,6 +703,7 @@ function renderProposal(p) {
       ${a && !TERMINAL.has(a.status) ? `<button id="refreshStatus" class="secondary">Check status</button>` : ""}
       <button id="speak" class="secondary" data-auth>Speak status</button>
     </div>
+    ${cashfreeDetails(a)}
     ${timeline ? `<h3>Status timeline</h3><ol class="timeline">${timeline}</ol>` : ""}
     ${p.postings && p.postings.length ? `<h3>Postings</h3><ul>${p.postings.map((x) => `<li>${esc(x.kind)} ${inr(x.amount_paise)}</li>`).join("")}</ul>` : ""}
   `;
@@ -766,8 +892,136 @@ async function loadPlan() {
     <h3>Pay now</h3><ul class="plan-list">${plan.selected.map((e) => item(e, `#${e.rank} · ${inr(e.amount_paise)}${e.overdue_days ? ` · ${e.overdue_days}d overdue` : ""}`)).join("") || `<li class="muted">Nothing fits</li>`}</ul>
     ${plan.skipped.length ? `<h3>Skipped</h3><ul class="plan-list">${plan.skipped.map((e) => item(e, `${inr(e.amount_paise)} · exceeds remaining ${inr(e.remaining_budget_paise)}`)).join("")}</ul>` : ""}
     ${plan.excluded.length ? `<details><summary>Not in the plan (${plan.excluded.length})</summary><ul class="plan-list">${plan.excluded.map((e) => item(e, esc(e.reason.replace(/_/g, " ").toLowerCase()))).join("")}</ul></details>` : ""}
-    <p class="small muted">Remaining ${inr(plan.remaining_paise)}. ${esc(plan.disclaimer)}</p>`;
+    <p class="small muted">Remaining ${inr(plan.remaining_paise)}. ${esc(plan.disclaimer)}</p>
+    <div class="btn-row">
+      ${plan.selected.length ? `<button class="small" data-bulk="plan" data-auth>Prepare plan payments (${plan.selected.length} · ${inr(plan.selected.reduce((t, e) => t + e.amount_paise, 0))})</button>` : ""}
+      ${(() => {
+        const ready = [...plan.selected, ...plan.skipped];  // every safe bill not yet sent
+        return ready.length ? `<button class="secondary small" data-bulk="all_ready" data-auth>Prepare all ready (${ready.length} · ${inr(ready.reduce((t, e) => t + e.amount_paise, 0))})</button>` : "";
+      })()}
+    </div>
+    ${bulkButtons() ? `<div class="btn-row">${bulkButtons()}</div>` : ""}
+    ${plan.skipped.length ? `<p class="small">Left out by the budget: ${plan.skipped.map((e) => `${esc(e.invoice_id)} (${inr(e.amount_paise)})`).join(", ")}.
+      Raise the budget to ${inr(plan.cash_budget_paise - plan.remaining_paise + plan.skipped.reduce((t, e) => t + e.amount_paise, 0))} to include ${plan.skipped.length === 1 ? "it" : "them"}, or use "Prepare all ready".</p>` : ""}
+    <p class="small muted">Preparing only creates proposals. Each payment is still approved and sent one by one.</p>`;
+  state.plan = plan;
   renderToday(plan);
+  bindBulk($("#plan"));
+  bindBulkReview($("#plan"));
+}
+
+// ---- bulk approve and send (each proposal still checked on its own snapshot) -----
+
+function queueCounts() {
+  const b = state.batch;
+  if (!b) return { toApprove: 0, toSend: 0 };
+  const open = b.invoices.filter((i) => i.proposal && !i.payment_overlay);
+  return { toApprove: open.filter((i) => i.proposal.state === "READY_FOR_APPROVAL").length,
+           toSend: open.filter((i) => i.proposal.state === "AUTHORIZED").length };
+}
+
+function bulkButtons() {
+  const q = queueCounts();
+  return (q.toApprove ? `<button class="small primary" data-bulkreview="approve" data-auth>Review &amp; approve ${q.toApprove}</button>` : "")
+    + (q.toSend ? `<button class="small" data-bulkreview="send" data-auth>Send ${q.toSend} approved</button>` : "");
+}
+
+function bindBulkReview(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-bulkreview]").forEach((b) => b.onclick = () => openBulkReview(b.dataset.bulkreview));
+  renderSession();
+}
+
+async function openBulkReview(mode) {
+  let q;
+  try { q = await api(`/api/batches/${state.batchId}/approval-queue?${lq()}`); } catch (err) { toast(err.message); return; }
+  const items = mode === "approve" ? q.to_approve : q.to_send;
+  if (!items.length) { toast(mode === "approve" ? "Nothing waiting for approval." : "Nothing approved to send."); return; }
+  const MODE = { CASHFREE_SANDBOX: "Cashfree sandbox", SIMULATED: "Simulated", TEST_PROVIDER: "Test provider" };
+  $("#bulkTitle").textContent = mode === "approve" ? "Review and approve payments" : "Send approved payments";
+  $("#bulkIntro").textContent = mode === "approve"
+    ? "Check each payee and amount. Untick anything you don't want to approve. Each payment is approved on its own frozen snapshot; nothing is sent yet."
+    : "Each selected payment is sent once to its saved account, with its own fixed transfer ID.";
+  $("#bulkHead").innerHTML = `<tr><th></th><th>Vendor</th><th>Bill</th><th>To account</th><th class="num">Amount</th><th>How</th><th>Check</th></tr>`;
+  $("#bulkRows").innerHTML = items.map((i) => `<tr data-pid="${esc(i.proposal_id)}">
+      <td><input type="checkbox" class="bulk-pick" ${i.expired ? "disabled" : "checked"} data-amount="${i.amount_paise}" data-hash="${esc(i.snapshot_hash)}"></td>
+      <td>${esc(i.vendor)}</td><td class="mono small">${esc(i.invoice_number || i.invoice_id)}</td>
+      <td class="mono">${esc(i.beneficiary_display)}</td><td class="num">${esc(i.amount_display)}</td>
+      <td class="small">${esc(MODE[i.dispatch_mode] || i.dispatch_mode)}</td>
+      <td class="small ${i.expired ? "bad-text" : "muted"}">${i.expired ? "Expired: prepare again" : esc(i.verification_label)}</td></tr>`).join("");
+  const picked = () => [...document.querySelectorAll("#bulkRows .bulk-pick:checked")];
+  const total = () => picked().reduce((t, c) => t + Number(c.dataset.amount), 0);
+  const refreshTotal = () => {
+    $("#bulkTotal").innerHTML = `<b>${picked().length}</b> selected · total <b>${inr(total())}</b>`;
+    const go = $("#bulkGo"); if (go) { go.disabled = !picked().length; go.textContent = mode === "approve" ? `Approve ${picked().length} (${inr(total())})` : `Send ${picked().length} (${inr(total())})`; }
+  };
+  $("#bulkMsg").innerHTML = "";
+  $("#bulkActions").innerHTML = `<button id="bulkGo" class="primary">Approve</button><button class="secondary" id="bulkClose">Close</button>`;
+  document.querySelectorAll("#bulkRows .bulk-pick").forEach((c) => c.onchange = refreshTotal);
+  refreshTotal();
+  $("#bulkClose").onclick = () => $("#bulkDialog").close();
+  $("#bulkGo").onclick = async () => {
+    const sel = picked();
+    if (!sel.length) return;
+    try {
+      if (mode === "approve") {
+        const items = sel.map((c) => ({ proposal_id: c.closest("tr").dataset.pid, snapshot_hash: c.dataset.hash }));
+        const r = await busy($("#bulkGo"), "Approving…", () => api(`/api/batches/${state.batchId}/approve-bulk`,
+          { method: "POST", json: { items, confirm_total_paise: total() } }));
+        markRows(r.results, (x) => (x.outcome === "AUTHORIZED" ? "Approved" : `${x.outcome}${x.reason ? ": " + x.reason : ""}`));
+        await refreshBatch();
+        const sendable = r.results.filter((x) => x.outcome === "AUTHORIZED").map((x) => x.proposal_id);
+        $("#bulkMsg").textContent = `Approved ${r.approved} of ${sel.length}. Nothing has been sent yet.`;
+        $("#bulkActions").innerHTML = (sendable.length ? `<button id="bulkSendNow" class="primary">Send ${sendable.length} approved now</button>` : "")
+          + `<button class="secondary" id="bulkClose2">Close</button>`;
+        $("#bulkClose2").onclick = () => $("#bulkDialog").close();
+        if (sendable.length) $("#bulkSendNow").onclick = () => sendBulk(sendable);
+      } else {
+        await sendBulk(sel.map((c) => c.closest("tr").dataset.pid));
+      }
+    } catch (err) { $("#bulkMsg").innerHTML = `<span class="bad-text">${esc(err.message)}</span>`; }
+  };
+  $("#bulkDialog").showModal();
+}
+
+function markRows(results, label) {
+  results.forEach((x) => {
+    const tr = document.querySelector(`#bulkRows tr[data-pid="${CSS.escape(x.proposal_id)}"]`);
+    if (!tr) return;
+    const c = tr.querySelector(".bulk-pick"); if (c) { c.checked = false; c.disabled = true; }
+    tr.lastElementChild.innerHTML = `<b>${esc(label(x))}</b>`;
+  });
+}
+
+async function sendBulk(ids) {
+  const btn = $("#bulkSendNow") || $("#bulkGo");
+  const r = await busy(btn, "Sending…", () => api(`/api/batches/${state.batchId}/execute-bulk?${lq()}`, { method: "POST", json: { proposal_ids: ids } }));
+  markRows(r.results, (x) => (x.transfer_id ? `${x.outcome} · ${x.transfer_id}` : `${x.outcome}${x.reason ? ": " + x.reason : ""}`));
+  const sent = r.results.filter((x) => x.transfer_id).length;
+  $("#bulkMsg").textContent = `Sent ${sent} of ${ids.length}. Status updates as Cashfree reports it; a settlement is recorded only on confirmed completion.`;
+  $("#bulkActions").innerHTML = `<button class="secondary" id="bulkClose3">Close</button>`;
+  $("#bulkClose3").onclick = () => $("#bulkDialog").close();
+  await refreshBatch();
+}
+
+// ---- bulk preparation (proposals only; approval stays one by one) ---------------
+
+function bindBulk(root) {
+  if (!root) return;
+  renderSession();
+  root.querySelectorAll("[data-bulk]").forEach((b) => b.onclick = async () => {
+    const budget = Math.round(Number($("#budget").value || 0) * 100);
+    try {
+      const r = await busy(b, "Preparing…", () => api(`/api/batches/${state.batchId}/proposals`, {
+        method: "POST", json: { scope: b.dataset.bulk, cash_budget_paise: budget } }));
+      await refreshBatch();
+      const parts = [];
+      if (r.created.length) parts.push(`Prepared ${r.created.length} (${inr(r.total_paise)})`);
+      if (r.already_prepared.length) parts.push(`${r.already_prepared.length} already prepared`);
+      if (r.skipped.length) parts.push(`${r.skipped.length} skipped: ${r.skipped.map((s) => `${s.invoice_id} ${s.code}`).join(", ")}`);
+      toast((parts.join(" · ") || "Nothing to prepare") + ". Approve each one from Today.");
+    } catch (err) { toast(err.message); }
+  });
 }
 
 // Home: what needs Raghu today, in order: pay (plan order), don't pay, check, wait, done.
@@ -782,7 +1036,12 @@ function renderToday(plan) {
       <span class="amt">${inr(amt)}</span>
       ${action ? `<button class="small ${cls === "ok" ? "primary" : ""}" data-open="${esc(id)}">${esc(action)}</button>` : "<span></span>"}</li>`;
   const items = [
-    ...plan.selected.map((e) => row("ok", `Pay ${e.vendor}`, `#${e.rank} in this Friday's plan · due ${e.due_date || "—"}${e.overdue_days ? ` · ${e.overdue_days}d overdue` : ""}`, e.amount_paise, e.invoice_id, "Review & pay")),
+    ...plan.selected.map((e) => {
+      const ps = (inv[e.invoice_id] && inv[e.invoice_id].proposal && inv[e.invoice_id].proposal.state) || "";
+      const stage = ps === "READY_FOR_APPROVAL" ? " · ready to approve" : ps === "AUTHORIZED" ? " · approved, ready to send" : "";
+      const action = ps === "READY_FOR_APPROVAL" ? "Approve" : ps === "AUTHORIZED" ? "Send" : "Review & pay";
+      return row("ok", `Pay ${e.vendor}`, `#${e.rank} in this Friday's plan · due ${e.due_date || "—"}${e.overdue_days ? ` · ${e.overdue_days}d overdue` : ""}${stage}`, e.amount_paise, e.invoice_id, action);
+    }),
     ...b.invoices.filter((i) => i.decision === "BLOCKED").map((i) => row("bad", `Don't pay ${i.vendor || i.invoice_id}`, reason(i), i.stated_total_paise, i.invoice_id,
       i.findings.some((f) => f.code === "CHANGED_BENEFICIARY" && f.status === "OPEN") ? "Call vendor" : "See why")),
     ...b.invoices.filter((i) => i.decision === "REVIEW").map((i) => row("warn", `Check ${i.vendor || i.invoice_id}`, reason(i), i.stated_total_paise, i.invoice_id, "Check")),
@@ -793,9 +1052,14 @@ function renderToday(plan) {
   const payNow = plan.selected.reduce((t, e) => t + e.amount_paise, 0);
   $("#today").innerHTML = `
     <h2 class="hero">Today · ${b.invoices.length} bills</h2>
-    <p>${plan.selected.length} to pay now (${inr(payNow)}), ${n("REVIEW")} to check, ${n("BLOCKED")} blocked. Cash left after the plan: ${inr(plan.remaining_paise)}.</p>
+    <p>${plan.selected.length} to pay now (${inr(payNow)}), ${n("REVIEW")} to check, ${n("BLOCKED")} blocked${b.invoices.filter((i) => ["PAID", "PAYMENT_PENDING", "PAYMENT_UNKNOWN", "SIMULATED"].includes(i.payment_overlay)).length ? `, ${b.invoices.filter((i) => ["PAID", "PAYMENT_PENDING", "PAYMENT_UNKNOWN", "SIMULATED"].includes(i.payment_overlay)).length} paid or sent` : ""}. Cash left after the plan: ${inr(plan.remaining_paise)}.</p>
+    ${plan.selected.some((e) => !(inv[e.invoice_id] && inv[e.invoice_id].proposal && ["READY_FOR_APPROVAL", "AUTHORIZED"].includes(inv[e.invoice_id].proposal.state)))
+      ? `<div class="btn-row"><button class="primary small" data-bulk="plan" data-auth>Prepare ${plan.selected.length} payment${plan.selected.length === 1 ? "" : "s"} (${inr(payNow)})</button></div>` : ""}
+    ${bulkButtons() ? `<div class="btn-row">${bulkButtons()}</div>` : ""}
     <ol class="todo-list">${items.join("")}</ol>`;
   document.querySelectorAll("#today [data-open]").forEach((btn) => btn.onclick = () => showInvoice(btn.dataset.open));
+  bindBulk($("#today"));
+  bindBulkReview($("#today"));
 }
 
 // ---- activity -------------------------------------------------------------------

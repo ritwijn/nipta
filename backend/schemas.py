@@ -117,3 +117,24 @@ class ProviderEventRequest(BaseModel):
 class AgentToolCall(BaseModel):
     tool: str
     arguments: dict = Field(default_factory=dict)
+
+
+class BulkProposalRequest(BaseModel):
+    """Prepare (not approve, not execute) proposals for many bills at once."""
+    scope: Literal["plan", "all_ready"] = "plan"
+    cash_budget_paise: int | None = Field(default=None, ge=0)
+
+
+class BulkApproveItem(BaseModel):
+    proposal_id: str
+    snapshot_hash: str
+
+
+class BulkApproveRequest(BaseModel):
+    """Approve many proposals at once. Each is still bound to the snapshot hash the operator saw."""
+    items: list[BulkApproveItem] = Field(min_length=1, max_length=50)
+    confirm_total_paise: int = Field(ge=0)
+
+
+class BulkExecuteRequest(BaseModel):
+    proposal_ids: list[str] = Field(min_length=1, max_length=50)

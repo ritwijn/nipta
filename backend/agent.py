@@ -79,7 +79,8 @@ BANK_WORDS = ("bank", "account", "ifsc", "beneficiary", "ಖಾತೆ", "ಬ್�
 MATH_WORDS = ("total", "arithmetic", "math", "words", "ಒಟ್ಟು", "ಮೊತ್ತ", "कुल", "जोड़")
 ALL_WORDS = ("all", "every", "everything", "ಎಲ್ಲಾ", "ಎಲ್ಲ", "सभी", "सब")
 VALID_WORDS = ("valid", "eligible", "ready", "payable", "can be paid", "which invoice", "what invoice",
-               "summary", "overview", "safe to pay",
+               "summary", "overview", "safe", "how many", "count", "today",
+               "ಸುರಕ್ಷಿತ", "ಎಷ್ಟು", "ಇಂದು", "सुरक्षित", "कितने", "कितना", "आज",
                "ಸರಿಯಾದ", "ಸರಿಯಾಗಿ", "ಮಾನ್ಯ", "ಅರ್ಹ", "ಸಿದ್ಧ", "ಯಾವ", "ಯಾವುವು",
                "वैध", "सही", "योग्य", "तैयार", "कौन", "कौनसे")
 
@@ -255,7 +256,7 @@ def run_tool(conn: sqlite3.Connection, name: str, args: BaseModel, batch_id: str
         return (f"{vendor_id} ••{ben['account_last4']}: {ver['account_status']}, {ver['name_match_result']} "
                 f"({label})."), [], {"source": ver["source"]}
     if name == "rank_eligible_invoices":
-        budget = a.get("cash_budget_paise") or int(db.get_setting(conn, "cash_budget_paise", "900000"))
+        budget = a.get("cash_budget_paise") or int(db.get_setting(conn, "cash_budget_paise", "100000000"))
         plan = priority.payment_plan(conn, batch_id, budget)
         overview = explain.explain_batch(conn, batch_id, lang)
         parts = [overview + "\n", f"Budget {format_inr(budget)}:"]
@@ -278,7 +279,8 @@ def run_tool(conn: sqlite3.Connection, name: str, args: BaseModel, batch_id: str
     if name == "extract_invoice":
         inv = db.row(conn, "SELECT i.*, d.extraction_source FROM invoices i JOIN documents d"
                            " ON d.document_id=i.document_id WHERE i.invoice_id=?", (iid,))
-        return (f"{iid}: {inv['vendor_name_raw']} · {inv['invoice_number_raw']} · {inv['invoice_date']} · "
+        dash = lambda v: v if v not in (None, "") else "—"
+        return (f"{iid}: {dash(inv['vendor_name_raw'])} · {dash(inv['invoice_number_raw'])} · {dash(inv['invoice_date'])} · "
                 f"{format_inr(inv['stated_total_paise'])} ({inv['extraction_source']})."), [], {}
     raise AssertionError(name)
 
