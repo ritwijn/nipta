@@ -4,12 +4,12 @@
 </picture>
 
 <p align="center">
-  <a href="#-the-trailer">Trailer</a> ·
-  <a href="#-one-friday-in-nipta">How it works</a> ·
-  <a href="#-the-six-checks">Six checks</a> ·
-  <a href="#-where-sarvam-ai-and-cashfree-are-used">Sarvam AI and Cashfree</a> ·
-  <a href="#%EF%B8%8F-run-it">Run it</a> ·
-  <a href="#-documents">Documents</a>
+  <a href="#the-trailer">Trailer</a> ·
+  <a href="#one-friday-in-nipta">How it works</a> ·
+  <a href="#the-six-checks">Six checks</a> ·
+  <a href="#where-sarvam-ai-and-cashfree-are-used">Sarvam AI and Cashfree</a> ·
+  <a href="#run-it">Run it</a> ·
+  <a href="#documents">Documents</a>
 </p>
 
 Raghu runs a hardware wholesale shop. Every Friday his suppliers' bills arrive in Kannada, Hindi and English, some printed,
@@ -32,7 +32,7 @@ to the right person*). Synthetic data and sandbox money only.
 
 ---
 
-## 🎬 The trailer
+## The trailer
 
 <p align="center">
   <a href="docs/media/nipta-trailer.mp4"><img src="docs/readme/trailer-poster.png" alt="Play the 2-minute Nipta trailer: Lakshmi, a shop owner figurine, at her counter" width="100%"></a>
@@ -77,7 +77,7 @@ want to keep. Another Bulbul voice: `node trailer/voice.mjs --force --speaker pr
 
 ---
 
-## 🧾 One Friday in Nipta
+## One Friday in Nipta
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/flow-dark.svg">
@@ -108,7 +108,7 @@ flowchart TD
 
 ---
 
-## ✅ The six checks
+## The six checks
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/checks-dark.svg">
@@ -159,7 +159,7 @@ Finding codes and exact rules: [`docs/PRD.md`](docs/PRD.md) §7 and [`docs/archi
 
 ---
 
-## 🤝 Where Sarvam AI and Cashfree are used
+## Where Sarvam AI and Cashfree are used
 
 Every call to a partner API lives in [`backend/integrations/`](backend/integrations). Each one is **off by default** and
 switched on in `.env`. While it is off, Nipta uses a fallback and **labels it on screen**: it never shows a mock as a live
@@ -211,7 +211,7 @@ To see what's switched on in your own setup, run `./run.sh --check` or look at t
 
 ---
 
-## 🛡️ Rules it never breaks
+## Rules it never breaks
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/never-dark.svg">
@@ -255,7 +255,7 @@ status lookups.
 
 ---
 
-## ▶️ Run it
+## Run it
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
@@ -335,7 +335,7 @@ Sarvam AI and Cashfree through direct server-side APIs.
 
 ---
 
-## 📚 Documents
+## Documents
 
 | Document | Covers |
 |---|---|
