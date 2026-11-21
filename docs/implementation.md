@@ -125,7 +125,7 @@ Every provider is **off by default**. Load the values from `.env` and expose a c
 class Settings:
     sarvam_api_key: str | None
     sarvam_chat_model: str = "sarvam-105b"
-    sarvam_vision_model: str | None = None
+    sarvam_vision_language: str = "en-IN"
     sarvam_tts_model: str = "bulbul:v3"
     sarvam_vision_enabled: bool = False
     sarvam_chat_enabled: bool = False
@@ -164,7 +164,7 @@ def capability_report(s: Settings) -> dict: ...   # served by GET /api/health
 # Sarvam AI
 SARVAM_API_KEY=
 SARVAM_VISION_ENABLED=false
-SARVAM_VISION_MODEL=            # confirm at the event
+SARVAM_VISION_LANGUAGE=en-IN    # Document AI extract job
 SARVAM_CHAT_ENABLED=false
 SARVAM_CHAT_MODEL=sarvam-105b
 SARVAM_TTS_ENABLED=false
@@ -1024,4 +1024,4 @@ Recorded while building v1.0 of the code:
 - **Extra codes:** `PAYMENT_EXISTS` (a proposal was refused because an attempt is in flight or completed), `NOT_AUTHORIZED`, `SECURE_ID_UNAVAILABLE`, `TTS_UNAVAILABLE`, `UPLOAD_REJECTED`.
 - **Recovery window.** `/status` only treats a `REQUEST_RESERVED` attempt with `dispatch_started_at` set as interrupted after 45 s (longer than the 30 s HTTP timeout). Startup recovery treats it as interrupted at once.
 - **Fixture documents** are printable `.txt` files. With Sarvam vision off, an upload whose file name matches a fixture (for example `inv_a.pdf`) uses that fixture's pre-extracted JSON, labelled `PRE_EXTRACTED_FIXTURE`. Any other upload becomes `DOCUMENT_UNREADABLE` (REVIEW).
-- **Unconfirmed provider shapes** live in one place each: the transfer body in `cashfree_payouts.create_transfer`, 2FA padding in `cf_signature`, the vision message in `sarvam.extract_invoice_live`, and TTS fields in `sarvam.text_to_speech`. Track them in `integration_decisions.md`.
+- **Unconfirmed provider shapes** live in one place each: the transfer body in `cashfree_payouts.create_transfer`, 2FA padding in `cf_signature`, the Document AI extract schema in `sarvam.INVOICE_SCHEMA`, and TTS fields in `sarvam.text_to_speech`. Track them in `integration_decisions.md`.

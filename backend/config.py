@@ -40,7 +40,7 @@ class Settings:
     sarvam_api_key: str | None = None
     sarvam_base_url: str = "https://api.sarvam.ai"
     sarvam_chat_model: str = "sarvam-105b"
-    sarvam_vision_model: str | None = None
+    sarvam_vision_language: str = "en-IN"
     sarvam_tts_model: str = "bulbul:v3"
     sarvam_vision_enabled: bool = False
     sarvam_chat_enabled: bool = False
@@ -92,7 +92,7 @@ class Settings:
 
     @property
     def vision_live(self) -> bool:
-        return bool(self.sarvam_vision_enabled and self.sarvam_api_key and self.sarvam_vision_model)
+        return bool(self.sarvam_vision_enabled and self.sarvam_api_key)
 
     @property
     def chat_live(self) -> bool:
@@ -108,7 +108,7 @@ def load_settings() -> Settings:
         sarvam_api_key=_str("SARVAM_API_KEY"),
         sarvam_base_url=_str("SARVAM_BASE_URL", "https://api.sarvam.ai"),
         sarvam_chat_model=_str("SARVAM_CHAT_MODEL", "sarvam-105b"),
-        sarvam_vision_model=_str("SARVAM_VISION_MODEL"),
+        sarvam_vision_language=_str("SARVAM_VISION_LANGUAGE", "en-IN"),
         sarvam_tts_model=_str("SARVAM_TTS_MODEL", "bulbul:v3"),
         sarvam_vision_enabled=_bool("SARVAM_VISION_ENABLED", False),
         sarvam_chat_enabled=_bool("SARVAM_CHAT_ENABLED", False),
