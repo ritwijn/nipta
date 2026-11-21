@@ -1,10 +1,14 @@
 # Nipta — Product Requirements Document
 
-**Version:** 5.0 · Updated to match the code on `develop` · Direct Cashfree and Sarvam API integrations  
+**Version:** 5.1 · Updated to match the code on `develop` (after the review fixes, #9) · Direct Cashfree and Sarvam API integrations  
 **Date:** 21 November 2026  
 **Event:** Cashfree × Sarvam AI Buildathon, Bengaluru  
 **Challenge:** **Pay the right bill, to the right person**  
 **Status:** Built and running. Each requirement and test below carries its implementation status. Live provider checks are recorded in `integration_decisions.md`.
+
+### What changed in v5.1
+
+Review fixes (#9): every data route needs a session; PIN lockout and a random session secret; Kannada amounts in words parsed; tax-inclusive, mixed-rate and rounding cases no longer blocked; IFSC spacing and "M/s" no longer cause false holds; near duplicates need the same total; a resumed payout is re-checked before sending; reversals are found by polling too. 169 automated tests pass.
 
 ### What changed in v5.0
 
@@ -18,7 +22,7 @@
 | Cashfree Payouts | Planned | **Live in sandbox:** keys accepted, 2FA public-key signature on, a real transfer submitted (`RECEIVED` → `PENDING`) |
 | Frontend | Vite + React + TypeScript | Single **no-build page** served by FastAPI ("Shop counter" design, Today list) |
 | Approval card in own language | Required, with amount in words | **Partial:** status text and explanations are templated in en/kn/hi; amount in words on the card is **not built** |
-| Tests | T01–T28 | T01–T22 and S01–S08 covered; T23–T28 partly covered (see §14). 107 automated tests pass. |
+| Tests | T01–T28 | T01–T22 and S01–S08 covered; T23–T28 partly covered (see §14). 169 automated tests pass (v5.1). |
 
 ## 1. The problem we are solving
 
@@ -38,7 +42,7 @@ Nipta covers the organizer's challenges: multilingual invoices; figures versus w
 
 ## 2. Users and success
 
-**Primary user:** Raghu or his accountant (one seeded operator, PIN sign-in). They add bills, read exception explanations, approve vendors, decide which legitimate bills to pay and approve the exact payout.
+**Primary user:** Raghu or his accountant (one seeded operator, PIN sign-in; PINs typed in Kannada or Devanagari digits work; 5 wrong PINs lock sign-in for 60 s). They add bills, read exception explanations, approve vendors, decide which legitimate bills to pay and approve the exact payout.
 
 **Beneficiary:** A vendor with an approved record in the vendor registry. Bank details printed on an invoice are untrusted evidence, never an instruction to update the vendor record.
 
@@ -79,9 +83,9 @@ Nipta covers the organizer's challenges: multilingual invoices; figures versus w
 
 1. **Add bills.** Upload PDF/JPEG/PNG bills with **Add bills**. They're added to the list being worked on (the Today list), checked straight away, and shown with a busy state and a result summary. Re-uploading an identical file opens the existing bill instead of creating a second payable. A demo batch of six synthetic invoices is seeded so the demo never depends on a camera.
 2. **Read them with Sarvam.** Sarvam **Document AI Extract** (async job: submit → poll → results) returns every field as a verbatim string with per-field confidence: language, vendor, invoice number/dates, line items, tax lines, totals, amount in words, printed bank details and notes. If vision was off when a bill was uploaded, **Run checks** / **Re-run checks** retry the extraction later.
-3. **Normalize** Kannada and Devanagari digits (Tamil digits are also accepted), Indian and Western grouping, `₹`/`Rs`/`ರೂ`/`रु`, lakh/crore/thousand in Kannada, Hindi and English, and common date formats. Unreadable or contradictory values are never guessed.
-4. **Check deterministically** in integer paise: line maths, subtotal, each GST line's rate, grand total, and amount-in-words (English and Hindi) against figures.
-5. **Match the vendor** against the approved registry in Latin, Kannada and Devanagari scripts (legal suffixes like Pvt/Ltd ignored, zero-width joiners ignored). Score exact and near duplicates against every earlier bill from the same vendor, with already-paid / in-flight evidence.
+3. **Normalize** Kannada and Devanagari digits (Tamil digits are also accepted), Indian and Western grouping, `₹`/`Rs`/`ರೂ`/`रु`, "Only"/"rupees" in any case, lakh/crore/thousand in Kannada, Hindi and English, and common date formats including month names (`21-Nov-26`, `Nov 21, 2026`). Unreadable or contradictory values are never guessed.
+4. **Check deterministically** in integer paise: line maths, subtotal, each GST line's rate, grand total, and amount-in-words (English, Hindi and Kannada) against figures.
+5. **Match the vendor** against the approved registry in Latin, Kannada and Devanagari scripts (legal prefixes and suffixes like M/s, Pvt/Ltd, (P) ignored, zero-width joiners ignored; the agent matches invoice references as whole words of 3+ characters). Score exact and near duplicates against every earlier bill from the same vendor, with already-paid / in-flight evidence.
 6. **Compare bank details** printed on the bill with the approved saved beneficiary. Any difference is a hard block, even if the new account would pass a bank check. Optionally ask **Relay** to call the vendor on the registry number; the answer is recorded as evidence and the bill stays blocked.
 7. **Classify** each bill as `ELIGIBLE`, `REVIEW` or `BLOCKED` with specific findings and evidence. `REVIEW` findings can be cleared by an operator with a recorded reason; `BLOCKED` can't be overridden.
 8. **Approve vendors.** An unknown vendor can be approved from the bill ("Approve this vendor…") or from the Approved vendors panel (§8).
@@ -128,7 +132,7 @@ All vendors, documents, accounts and dates are synthetic. Mock verification resu
 ### Multiple findings and duplicate precedence
 
 - Every rule runs on every bill; all findings are stored and shown; the bill takes the most severe decision (BLOCKED > REVIEW > ELIGIBLE).
-- The later-ingested bill of a pair is the one flagged. An exact duplicate (same vendor and normalized number, or same file hash) is BLOCKED; a near duplicate (score ≥ 6: total 3, items 3, related number 2, dates within 14 days 1) is REVIEW. If the matched bill is paid or has a transfer in flight, the finding carries `ALREADY_PAID` / `PAYMENT_IN_FLIGHT` and the transfer ID.
+- The later-ingested bill of a pair is the one flagged. An exact duplicate (same vendor and normalized number, or same file hash) is BLOCKED; a near duplicate (score ≥ 6: total 3, items 3, related number 2, dates within 14 days 1, **and the same stated total**) is REVIEW. A repeat order for a different amount isn't flagged. If the matched bill is paid or has a transfer in flight, the finding carries `ALREADY_PAID` / `PAYMENT_IN_FLIGHT` and the transfer ID.
 - **Known gap:** a supplier's corrected re-issue with the **same** invoice number as a blocked, never-paid bill is treated as an exact duplicate (§16).
 
 ### Owner approval in his own language
@@ -190,6 +194,8 @@ flowchart TD
 - **Auth:** `x-client-id`, `x-client-secret`, `x-api-version: 2024-01-01`, `x-request-id`, plus `x-cf-signature` when `CASHFREE_2FA_PUBLIC_KEY_PATH` is set. The signature is RSA-OAEP (SHA-1/MGF1) of `"clientId.unixTimestamp"`, base64, regenerated per request (`backend/integrations/cashfree_auth.py`). The public key comes from **Payouts → Developers → Two-Factor Authentication → Public Key**, saved under git-ignored `secrets/`. Your sandbox account enforces IP-whitelist-or-signature, so the signature is on.
 - **Status mapping:** `RECEIVED`/`QUEUED`/`PENDING`/… → PENDING; `SUCCESS` + `SENT_TO_BENEFICIARY` → PENDING; `SUCCESS` + `COMPLETED` → COMPLETED (only this posts a settlement); `FAILED`/`REJECTED` → FAILED; `REVERSED` after completion → REVERSED (compensating posting and a review finding), before completion → FAILED.
 - **Errors:** timeout or 5xx → `UNKNOWN` (same transfer ID, reconcile by lookup); 4xx → `FAILED` with Cashfree's code; duplicate transfer ID → reconcile.
+- **Resumed reservation:** an attempt reserved but never sent (e.g. a crash before dispatch) is re-checked before sending. If the approval expired or the beneficiary changed, it's marked `FAILED` with "stale approval, nothing sent" and a fresh proposal is needed.
+- **Reversals by polling:** completed attempts are still looked up (status route, and startup recovery for 7 days after creation), so a reversal is recorded even without webhooks.
 - **Verified live:** signed lookup accepted; one transfer for INV-E (₹3,200) submitted, `RECEIVED` → `PENDING`, ledger untouched pending completion.
 - **Modes:** `CASHFREE_SANDBOX` (Payouts live and verification sufficient), `SIMULATED` (Payouts off; never posts), `TEST_PROVIDER` (only with `NIPTA_TEST_MODE=true`; labelled stand-in for replay/reversal demos). Payouts isn't treated as live if the configured 2FA key file is missing.
 
@@ -241,11 +247,11 @@ Missing required monetary fields → `DOCUMENT_INCOMPLETE`; a present field belo
 
 ### Rule checks
 
-1. **Arithmetic** (`ARITHMETIC_MISMATCH`, BLOCK): qty × rate = line; Σ lines = subtotal (a missing subtotal is allowed when lines are complete); each tax line = subtotal × rate (±1 paise); subtotal + tax = total. Missing inputs or tax-inclusive with no tax line → `ARITHMETIC_UNVERIFIABLE` (REVIEW).
-2. **Words vs figures:** English and Hindi words parsed; mismatch → `WORDS_FIGURES_MISMATCH` (BLOCK); unparsable (including Kannada words) → `WORDS_UNPARSABLE` (REVIEW).
+1. **Arithmetic** (`ARITHMETIC_MISMATCH`, BLOCK): qty × rate = line (rounded half-up to the paisa); Σ lines = subtotal (a missing subtotal is allowed when lines are complete); each tax line = subtotal × rate (±1 paise) **only when every tax line has the same readable rate** (CGST + SGST at 9% is checked; mixed rates check only the grand total); subtotal + tax = total. **Tax-inclusive bills:** the total must equal the gross amount and tax is checked against gross − tax; a mismatch is REVIEW, never BLOCK. Missing inputs, a tax-inclusive bill with no tax line, or a rate that's printed but unreadable → `ARITHMETIC_UNVERIFIABLE` (REVIEW).
+2. **Words vs figures:** English, Hindi and Kannada words parsed (incl. "&", ರೂ/रु/₹, ಪೈಸೆ/paise); mismatch → `WORDS_FIGURES_MISMATCH` (BLOCK); unparsable → `WORDS_UNPARSABLE` (REVIEW).
 3. **Exact duplicate** (`CONFIRMED_DUPLICATE`, BLOCK) and **near duplicate** (`POSSIBLE_DUPLICATE`, REVIEW) as in §4.
 4. **Vendor:** `VENDOR_UNRESOLVED` (REVIEW) when no registry name, alias or script variant matches exactly one vendor.
-5. **Beneficiary:** printed account (full, or last four when masked) and IFSC vs the active saved version. Any difference → `CHANGED_BENEFICIARY` (BLOCK). Nothing printed and an approved beneficiary → no finding. No beneficiary → `NO_APPROVED_BENEFICIARY` (BLOCK).
+5. **Beneficiary:** printed account (full, or last four when masked) and IFSC (spaces, hyphens and case ignored) vs the active saved version. Any difference → `CHANGED_BENEFICIARY` (BLOCK). A printed account with no visible digits (`XXXXXXXXXXXX`) → `DOCUMENT_INCOMPLETE` (REVIEW). Nothing printed and an approved beneficiary → no finding. No beneficiary → `NO_APPROVED_BENEFICIARY` (BLOCK).
 6. **Verification:** none or stale (> 30 days) → `VERIFICATION_MISSING`; `INVALID` → `VERIFICATION_FAILED` (BLOCK); weak name match → `ACCOUNT_NAME_MISMATCH` (REVIEW).
 
 **False-positive rules (tested):** omitted bank details with an approved beneficiary stay eligible; equal amounts alone aren't duplicates; tax-inclusive ambiguity is REVIEW not BLOCK; a registered alias or a different script isn't a name mismatch.
@@ -274,37 +280,37 @@ SQLite (WAL, `BEGIN IMMEDIATE`), 15 tables: `batches`, `vendors` (incl. `phone`)
 |---|---|---|
 | `GET /api/health` | none | Capability report per provider (`LIVE` / `MISCONFIGURED` / off with fallback) |
 | `POST /api/auth/session` | PIN | Operator session token |
-| `GET /api/batches`, `GET /api/batches/{id}` | none (demo) | Lists; invoices, findings, payment overlay, `summary` |
+| `GET /api/batches`, `GET /api/batches/{id}` | session | Lists; invoices, findings, payment overlay, `summary` |
 | `POST /api/batches` | session | Load demo batch or upload to a new batch |
 | `POST /api/batches/{id}/documents` | session | **Add bills to an existing batch** |
 | `POST /api/batches/{id}/process` | session | Extract new documents (and retry missing extractions), run checks |
-| `POST /api/invoices` | session | Add one invoice as structured JSON |
+| `POST /api/invoices` | session | Add one invoice as structured JSON (`duplicate_upload: true` when the same JSON was already added) |
 | `POST /api/invoices/{id}/checks` | session | Re-run checks (retries a missing extraction) |
-| `GET /api/invoices/{id}/findings`, `…/source` | none (demo) | Evidence, masked bank comparison, original document |
+| `GET /api/invoices/{id}/findings`, `…/source` | session | Evidence, masked bank comparison, original document |
 | `GET /api/invoices/{id}/vendor-draft` | session | Full printed details to pre-fill vendor approval |
 | `POST /api/invoices/{id}/vendor-call`, `POST /api/relay/vendor-call-result` | session / shared secret | Relay vendor call and its result |
 | `POST /api/findings/{id}/resolve` | session | Resolve a REVIEW finding with a reason |
-| `GET /api/vendors`, `POST /api/vendors` | none / session | Approved vendors (masked); approve a vendor |
-| `GET /api/vendors/{id}/verification`, `POST …/verify` | none / session | Saved beneficiary and Secure ID verification |
-| `GET /api/payment-plan` | none (demo) | Ranked queue for a budget |
-| `POST /api/invoices/{id}/proposal`, `GET /api/proposals/{id}` | session / none | Freeze a snapshot; view it |
+| `GET /api/vendors`, `POST /api/vendors` | session | Approved vendors (masked); approve a vendor |
+| `GET /api/vendors/{id}/verification`, `POST …/verify` | session | Saved beneficiary and Secure ID verification |
+| `GET /api/payment-plan` | session | Ranked queue for a budget |
+| `POST /api/invoices/{id}/proposal`, `GET /api/proposals/{id}` | session | Freeze a snapshot; view it |
 | `POST /api/proposals/{id}/approve` | session + snapshot hash | Authorize |
 | `POST /api/proposals/{id}/execute` | session | Reserve and dispatch once |
-| `GET /api/proposals/{id}/status` | none (demo) | Stored state; reconciles non-terminal attempts with Cashfree |
+| `GET /api/proposals/{id}/status` | session | Stored state; reconciles open attempts with Cashfree (and completed ones, to catch reversals) |
 | `POST /api/webhooks/cashfree` | signature | Provider events |
 | `POST /api/agent/message`, `POST /api/agent/voice` | session | Typed or spoken questions |
 | `POST /api/speech/tts` | session | Speak a stored explanation |
-| `GET /api/audit` | none (demo) | Timeline |
+| `GET /api/audit` | session | Timeline |
 | `POST /api/dev/provider-event` | session, test mode | Labelled event injection for `TEST_PROVIDER` attempts only |
 
-All money is integer paise. Uploads accept PDF/PNG/JPEG up to 10 MB.
+All money is integer paise. Uploads accept PDF/PNG/JPEG up to 10 MB. Only `/api/health`, the static page, the signed Cashfree webhook and the Relay callback (shared secret) work without a session; the bank-change routes (`/api/vendors/{id}/bank-changes`) need one.
 
 ## 12. Implementation stack (as built)
 
 - **Frontend:** one no-build page (`static/index.html`, `app.js`, `styles.css`), "Shop counter" design: Today list grouped by decision, bill detail with findings and line recomputation, approval card with status timeline, Ask Nipta (text + mic), This Friday's plan, Approved vendors, What Nipta did. Language switch en / ಕನ್ನಡ / हिन्दी.
 - **Backend:** FastAPI + Pydantic + SQLite; rules in `backend/rules/`; payments in `backend/payments/`; providers in `backend/integrations/` (`sarvam.py`, `cashfree_payouts.py`, `cashfree_secureid.py`, `cashfree_auth.py`, `relay.py`); `agent.py`, `explain.py`, `vendors.py`, `pipeline.py`.
-- **Runtime:** `./run.sh` (single uvicorn worker, no reload; `--reset`, `--check`). A single-process lock on `<db>.lock` refuses a second copy. `.env` holds settings and credentials; `.env.example` documents them; `secrets/` holds the Cashfree public key. Both are git-ignored.
-- **Testing:** `pytest`, 107 tests, temporary SQLite, `httpx.MockTransport` for Cashfree and Sarvam contracts, threaded concurrency tests, mutation-checked double-execute race.
+- **Runtime:** `./run.sh` (single uvicorn worker, no reload; `--reset`, `--check`). A single-process lock on `<db>.lock` refuses a second copy. `.env` holds settings and credentials; `.env.example` documents them. If `NIPTA_SESSION_SECRET` is unset, a random one is generated per process (sign-ins reset on restart); `secrets/` holds the Cashfree public key. Both are git-ignored.
+- **Testing:** `pytest`, 169 tests, temporary SQLite, `httpx.MockTransport` for Cashfree and Sarvam contracts, threaded concurrency tests, mutation-checked double-execute race.
 
 ## 13. Build order and fallbacks
 
@@ -340,7 +346,7 @@ The original 3.5-hour build order is complete. Fallback policy still holds: if a
 | T24 | Original and disguised repeat, neither paid | Earlier judged alone; later REVIEW | Covered by T05 test |
 | T25 | Exact repeat of a paid / in-flight bill; near duplicate of it | Exact BLOCKED with `ALREADY_PAID`; near REVIEW with evidence | Near-duplicate case tested (S06); exact-paid case built, no dedicated test |
 | T26 | Approval card in Kannada and Hindi with amount in words | Words match `amount_paise` | **Not built** (amount in words) |
-| T27 | Registered alias / legal suffix ("Pvt. Ltd.") | ELIGIBLE | Behaviour built (suffix stripping, aliases); no dedicated test |
+| T27 | Registered alias / legal suffix ("Pvt. Ltd.", "M/s", "(P)") | ELIGIBLE | Pass (`test_rules_curveballs.py`) |
 | T28 | Mixed batch scorecard | Counts match findings; clean stay eligible | Scorecard tested on the fixture batch |
 | S01–S08 | Concurrency, crash recovery, paid duplicate, agent cap, tool allowlist | As architecture §13 | Pass |
 | — | Vendor approval rules, prefill, refusals; Secure ID adapter; 2FA signature; duplicate upload; add-to-batch; re-extraction; Kannada voice | See `test_vendors.py`, `test_cashfree_auth.py`, `test_sarvam.py` | Pass |
@@ -364,10 +370,10 @@ The original 3.5-hour build order is complete. Fallback policy still holds: if a
 ## 16. Known gaps and open decisions
 
 - **Amount in words on the approval card** (en/kn/hi) and Kannada card labels: not built (T26).
-- **Dedicated tests** for T23, T25 exact-paid, T27: behaviour exists, tests not yet written.
+- **Dedicated tests** for T23 and T25 exact-paid: behaviour exists, tests not yet written.
 - **Corrected re-issue with the same invoice number** of a blocked, never-paid bill is treated as a confirmed duplicate. Proposed: allow it to supersede the blocked original while keeping history, and keep blocking duplicates of paid or in-flight bills.
-- **Kannada amount-in-words** isn't parsed (REVIEW instead of a check).
 - **Secure ID live keys** not configured; real-payout verification currently relaxed (`NIPTA_REQUIRE_LIVE_VERIFICATION=false`) for sandbox testing.
+- **Known rule gaps:** a bill where some items are GST-exempt can still be blocked (tax lines can't be tied to items); discount lines go to REVIEW; a masked account showing only 1–3 digits still blocks.
 - **Vendor approval form** doesn't capture a phone number, so newly approved vendors can't receive a Relay call yet.
 - **Handwriting quality** of Document AI not yet tested on a real handwritten Kannada bill; iPhone HEIC photos must be exported as JPEG.
 - **Organizer rule:** confirm whether an initiated/pending sandbox payout satisfies "completed payout"; Nipta never claims completion without Cashfree's confirmation.

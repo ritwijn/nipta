@@ -592,7 +592,7 @@ def _vendor_or_404(conn, vendor_id: str) -> dict:
     return v
 
 
-@app.get("/api/vendors/{vendor_id}/bank-changes")
+@app.get("/api/vendors/{vendor_id}/bank-changes", dependencies=[Depends(require_session)])
 def list_bank_changes(vendor_id: str, conn: sqlite3.Connection = Depends(get_conn)):
     _vendor_or_404(conn, vendor_id)
     return {"vendor_id": vendor_id, "secure_id_live": get_settings().secureid_live,
