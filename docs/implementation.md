@@ -845,22 +845,22 @@ def verify_bank_account(account_number, ifsc, name) -> VerificationResult
 | `POST /api/auth/session` | PIN | 1 |
 | `POST /api/batches` | session | 1 |
 | `POST /api/batches/{id}/process` | session | 2 |
-| `GET /api/batches/{id}` | none (demo) | 2 |
+| `GET /api/batches/{id}` | session | 2 |
 | `POST /api/invoices` | session | 2 |
 | `POST /api/invoices/{id}/checks` | session | 2 |
-| `GET /api/invoices/{id}/findings` | none (demo) | 2 |
-| `GET /api/invoices/{id}/source` | none (demo) | 2 |
+| `GET /api/invoices/{id}/findings` | session | 2 |
+| `GET /api/invoices/{id}/source` | session | 2 |
 | `POST /api/findings/{id}/resolve` | session | 2 |
 | `POST /api/invoices/{id}/proposal` | session | 3 |
 | `POST /api/proposals/{id}/approve` | session + hash | 3 |
 | `POST /api/proposals/{id}/execute` | session | 3 |
-| `GET /api/proposals/{id}/status` | none (demo) | 4 |
+| `GET /api/proposals/{id}/status` | session | 4 |
 | `POST /api/webhooks/cashfree` | signature | 4 |
-| `GET /api/audit` | none (demo) | 4 |
+| `GET /api/audit` | session | 4 |
 | `POST /api/dev/provider-event` | session, test mode | 4 |
-| `GET /api/vendors/{id}/verification` | none (demo) | 5 |
+| `GET /api/vendors/{id}/verification` | session | 5 |
 | `POST /api/vendors/{id}/verify` | session | 5 |
-| `GET /api/payment-plan` | none (demo) | 5 |
+| `GET /api/payment-plan` | session | 5 |
 | `POST /api/agent/message` | session | 5 |
 | `POST /api/speech/tts` | session | 5 |
 

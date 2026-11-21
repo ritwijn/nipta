@@ -8,13 +8,17 @@ const state = {
   selected: null,
   proposalId: null,
   pollTimer: null,
+  callTimer: null,
+  callId: null,
+  callDeadline: 0,
   lang: "en",
 };
 
 try {
   state.token = sessionStorage.getItem("nipta.token");
   state.operator = sessionStorage.getItem("nipta.operator");
-  state.lang = localStorage.getItem("nipta.lang") || "en";
+  const saved = localStorage.getItem("nipta.lang");
+  state.lang = ["en", "kn", "hi"].includes(saved) ? saved : "en";  // a stale value would break every request
 } catch (_) { /* storage unavailable */ }
 
 const $ = (sel) => document.querySelector(sel);
@@ -104,11 +108,31 @@ function renderSession() {
   $("#upload").disabled = !signedIn;
 }
 
+function stopPolling() {
+  clearTimeout(state.pollTimer);
+  clearTimeout(state.callTimer);
+  state.pollTimer = state.callTimer = null;
+}
+
+// Every data route needs a session, so signed out we show only this prompt.
+function renderSignedOut() {
+  stopPolling();
+  Object.assign(state, { batchId: null, batch: null, selected: null, proposalId: null });
+  $("#detail").hidden = true;
+  $("#approval").hidden = true;
+  $("#welcome").hidden = false;
+  ["#batchSummary", "#batchSelect", "#today", "#plan", "#activity"].forEach((s) => { $(s).innerHTML = ""; });
+  $("#billList").innerHTML = `<p class="muted" style="font-weight:600;margin-top:18px">Sign in with your PIN to see this Friday's bills.</p>`;
+  $("#fridayTile").textContent = "—";
+  $("#cashTile").textContent = "—";
+}
+
 function signOut() {
   state.token = null;
   state.operator = null;
   try { sessionStorage.removeItem("nipta.token"); sessionStorage.removeItem("nipta.operator"); } catch (_) {}
   renderSession();
+  renderSignedOut();
 }
 
 $("#login").addEventListener("submit", async (e) => {
@@ -121,7 +145,8 @@ $("#login").addEventListener("submit", async (e) => {
     $("#pin").value = "";
     renderSession();
     toast("Signed in");
-  } catch (err) { toast(err.message); }
+  } catch (err) { toast(err.message); return; }
+  loadBatches().catch((e) => toast(e.message));
 });
 
 $("#lang").value = state.lang;
@@ -262,6 +287,7 @@ $("#processBatch").addEventListener("click", async () => {
 
 async function showInvoice(id) {
   state.selected = id;
+  clearTimeout(state.callTimer);
   document.querySelectorAll("#billList .bill").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
   $("#welcome").hidden = true;
   const d = await api(`/api/invoices/${id}/findings?${lq()}`);
@@ -329,7 +355,7 @@ async function showInvoice(id) {
       <div class="actions">
         <button class="small" id="backHome">← Today</button>
         <span class="chip ${DECISION_CLASS[d.decision]}">${esc(d.decision_label)}</span>
-        <a class="small" href="/api/invoices/${encodeURIComponent(d.invoice_id)}/source" target="_blank" rel="noopener">Original document</a>
+        <a class="small" href="#" id="openSource">Original document</a>
         <button class="secondary" id="rerun" data-auth>Re-run checks</button>
         ${d.decision === "ELIGIBLE" && !d.proposal ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
       </div>
@@ -368,8 +394,11 @@ async function showInvoice(id) {
       showInvoice(id);
     } catch (err) { toast(err.message); }
   });
+  $("#openSource").onclick = (ev) => { ev.preventDefault(); openSource(id); };
   $("#backHome").onclick = () => {
+    stopPolling();
     state.selected = null;
+    state.proposalId = null;
     $("#detail").hidden = true;
     $("#approval").hidden = true;
     $("#welcome").hidden = false;
@@ -381,8 +410,12 @@ async function showInvoice(id) {
     try { await api(`/api/invoices/${id}/vendor-call?${lq()}`, { method: "POST" }); toast("Calling vendor"); showInvoice(id); }
     catch (err) { toast(err.message); }
   };
-  // Poll until Relay posts the call result.
-  if (vc && vc.status === "REQUESTED") setTimeout(() => { if (state.selected === id) showInvoice(id); }, 5000);
+  // Poll until Relay posts the call result: one timer, given up after 5 minutes per call.
+  if (vc && vc.status === "REQUESTED") {
+    if (state.callId !== vc.call_id) { state.callId = vc.call_id; state.callDeadline = Date.now() + 5 * 60 * 1000; }
+    clearTimeout(state.callTimer);
+    if (Date.now() < state.callDeadline) state.callTimer = setTimeout(() => { if (state.selected === id) showInvoice(id); }, 5000);
+  }
   $("#rerun").onclick = async (ev) => {
     try {
       const inv = await busy(ev.currentTarget, "Checking…", () => api(`/api/invoices/${id}/checks`, { method: "POST" }));
@@ -401,10 +434,24 @@ async function showInvoice(id) {
   };
   if (d.proposal && ["READY_FOR_APPROVAL", "AUTHORIZED", "EXECUTED", "FINISHED"].includes(d.proposal.state)) {
     loadProposal(d.proposal.proposal_id);
-  } else if (state.proposalId) {
+  } else {
+    clearTimeout(state.pollTimer);  // else the old approval card's poll brings it back
     $("#approval").hidden = true;
     state.proposalId = null;
   }
+}
+
+// The source route needs the session header, which a plain link cannot send.
+async function openSource(id) {
+  const win = window.open("", "_blank");  // opened inside the click so popup blockers allow it
+  try {
+    const res = await fetch(`/api/invoices/${encodeURIComponent(id)}/source`, { headers: { Authorization: `Bearer ${state.token}` } });
+    if (res.status === 401) signOut();
+    if (!res.ok) throw new Error(res.status === 401 ? "Sign in again to open the document" : "Original document is not available");
+    const url = URL.createObjectURL(await res.blob());
+    if (win) win.location.href = url; else window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (err) { if (win) win.close(); toast(err.message); }
 }
 
 // ---- approval card --------------------------------------------------------------
@@ -487,7 +534,7 @@ function renderProposal(p) {
   if (rs) rs.onclick = () => loadProposal(p.proposal_id);
   $("#speak").onclick = () => speak("proposal", p.proposal_id);
   clearTimeout(state.pollTimer);
-  if (a && !TERMINAL.has(a.status)) state.pollTimer = setTimeout(() => loadProposal(p.proposal_id), 4000);
+  if (a && !TERMINAL.has(a.status)) state.pollTimer = setTimeout(() => { if (state.proposalId === p.proposal_id) loadProposal(p.proposal_id); }, 4000);
 }
 
 async function speak(kind, id) {
@@ -649,5 +696,6 @@ $("#refreshAudit").addEventListener("click", loadActivity);
 // ---- boot -----------------------------------------------------------------------
 
 renderSession();
-loadHealth().catch((e) => toast(e.message));
-loadBatches().catch((e) => toast(e.message));
+loadHealth().catch((e) => toast(e.message));  // public: capability badges only
+if (state.token) loadBatches().catch((e) => toast(e.message));
+else renderSignedOut();
