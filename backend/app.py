@@ -13,16 +13,16 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import agent, db, explain, pipeline, runtime_lock
+from . import agent, db, explain, pipeline, runtime_lock, verification
 from .config import capability_report, get_settings
 from .errors import NiptaError
-from .integrations import cashfree_secureid, sarvam
+from .integrations import sarvam
 from .integrations.cashfree_payouts import ProviderRejected, ProviderUncertain
 from .payments import approval, execution, status
 from .rules import beneficiaries, priority
 from .rules.normalize import format_inr, mask_account
-from .schemas import (AgentMessageRequest, ApproveRequest, ProviderEventRequest, ResolveFindingRequest,
-                      SessionRequest, StructuredInvoiceRequest, TTSRequest)
+from .schemas import (AgentMessageRequest, ApproveRequest, BankChangeRequest, ProviderEventRequest,
+                      RejectBankChangeRequest, ResolveFindingRequest, SessionRequest, StructuredInvoiceRequest, TTSRequest)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -385,27 +385,47 @@ def verify_vendor(vendor_id: str, operator: str = Depends(require_session),
                   conn: sqlite3.Connection = Depends(get_conn)):
     if not get_settings().secureid_live:
         raise NiptaError("SECURE_ID_UNAVAILABLE", "Cashfree Secure ID is not enabled for this deployment", 409)
-    ben = beneficiaries.active_beneficiary(conn, vendor_id)
-    if ben is None:
-        raise NiptaError("NO_APPROVED_BENEFICIARY", "Vendor has no saved beneficiary", 409)
     try:
-        r = cashfree_secureid.verify_bank_account(ben["bank_account_number"], ben["ifsc"], ben["account_holder_name"])
+        verification.verify_saved_account(conn, vendor_id, operator)
     except (ProviderUncertain, ProviderRejected) as exc:
         raise NiptaError("SECURE_ID_ERROR", str(exc), 502)
-    with db.immediate(conn):
-        conn.execute(
-            "INSERT INTO beneficiary_verifications(verification_id, beneficiary_id, beneficiary_version, source,"
-            " account_status, name_match_result, name_at_bank, provider_ref, verified_at)"
-            " VALUES (?,?,?,'LIVE_SECURE_ID_BAV',?,?,?,?,?)",
-            (db.new_id("ver"), ben["beneficiary_id"], ben["version"], r.account_status, r.name_match_result,
-             r.name_at_bank, r.reference_id, db.now()),
-        )
-        db.audit(conn, operator, "BENEFICIARY_VERIFIED", vendor_id,
-                 {"source": "LIVE_SECURE_ID_BAV", "account_status": r.account_status,
-                  "name_match_result": r.name_match_result})
     for inv in db.rows(conn, "SELECT invoice_id FROM invoices WHERE vendor_id=?", (vendor_id,)):
         pipeline.run_checks(conn, inv["invoice_id"])
     return vendor_verification(vendor_id, conn)
+
+
+def _vendor_or_404(conn, vendor_id: str) -> dict:
+    v = db.row(conn, "SELECT * FROM vendors WHERE vendor_id=?", (vendor_id,))
+    if v is None:
+        raise NiptaError("NOT_FOUND", "Vendor not found", 404)
+    return v
+
+
+@app.get("/api/vendors/{vendor_id}/bank-changes")
+def list_bank_changes(vendor_id: str, conn: sqlite3.Connection = Depends(get_conn)):
+    _vendor_or_404(conn, vendor_id)
+    return {"vendor_id": vendor_id, "secure_id_live": get_settings().secureid_live,
+            "requests": verification.list_requests(conn, vendor_id)}
+
+
+@app.post("/api/vendors/{vendor_id}/bank-changes")
+def request_bank_change(vendor_id: str, body: BankChangeRequest, operator: str = Depends(require_session),
+                        conn: sqlite3.Connection = Depends(get_conn)):
+    _vendor_or_404(conn, vendor_id)
+    return verification.request_change(conn, vendor_id, body.account_number, body.ifsc, body.account_holder_name,
+                                       body.confirmation_note, operator)
+
+
+@app.post("/api/bank-changes/{request_id}/approve")
+def approve_bank_change(request_id: str, operator: str = Depends(require_session),
+                        conn: sqlite3.Connection = Depends(get_conn)):
+    return verification.approve_change(conn, request_id, operator)
+
+
+@app.post("/api/bank-changes/{request_id}/reject")
+def reject_bank_change(request_id: str, body: RejectBankChangeRequest, operator: str = Depends(require_session),
+                       conn: sqlite3.Connection = Depends(get_conn)):
+    return verification.reject_change(conn, request_id, operator, body.reason)
 
 
 @app.get("/api/payment-plan")

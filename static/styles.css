@@ -149,3 +149,5 @@ button.mic.recording { background: var(--bad); color: #fff; border-color: var(--
   padding: 8px 14px; border-radius: 8px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw;
 }
 .toast.show { opacity: 1; }
+
+.bank-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; margin-top: 8px; }

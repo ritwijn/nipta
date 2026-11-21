@@ -93,7 +93,9 @@ def latest_verification(conn: sqlite3.Connection, ben: dict) -> dict | None:
     return dict(r) if r else None
 
 
-def check_verification(conn: sqlite3.Connection, vendor_id: str, now: int, max_age_days: int) -> list[Finding]:
+def check_verification(conn: sqlite3.Connection, vendor_id: str, now: int, max_age_days: int,
+                       require_live: bool = False) -> list[Finding]:
+    """require_live: when Secure ID is on, a seeded mock result does not count as verified."""
     ben = active_beneficiary(conn, vendor_id)
     if ben is None:
         return []  # NO_APPROVED_BENEFICIARY already raised
@@ -103,6 +105,10 @@ def check_verification(conn: sqlite3.Connection, vendor_id: str, now: int, max_a
         return [Finding(code="VERIFICATION_MISSING", severity="REVIEW",
                         evidence={**base, "reason": "No verification" if ver is None else "Verification is stale",
                                   "max_age_days": max_age_days})]
+    if require_live and ver["source"] != "LIVE_SECURE_ID_BAV":
+        return [Finding(code="VERIFICATION_MISSING", severity="REVIEW",
+                        evidence={**base, "reason": "No Secure ID result yet (only a seeded mock)",
+                                  "source": ver["source"]})]
     ev = {**base, "verification_id": ver["verification_id"], "source": ver["source"],
           "account_status": ver["account_status"], "name_match_result": ver["name_match_result"]}
     if ver["account_status"] == "INVALID":

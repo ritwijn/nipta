@@ -258,6 +258,7 @@ async function showInvoice(id) {
       </dl>
     </div>
     <h3>Findings</h3>${findingsHtml}
+    ${d.vendor_id ? `<div id="bankChanges"></div>` : ""}
     ${lines ? `<h3>Line items</h3><div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line total</th><th class="num">Recomputed</th></tr></thead><tbody>${lines}</tbody></table></div>` : ""}
     ${d.notes ? `<h3>Notes on document</h3><div class="note-data"><div class="small">${esc(d.notes_label)}</div>${esc(d.notes)}</div>` : ""}
   `;
@@ -282,12 +283,71 @@ async function showInvoice(id) {
       renderProposal(p);
     } catch (err) { toast(err.message); }
   };
+  if (d.vendor_id) loadBankChanges(d.vendor_id, id, d.findings.some((f) => f.code === "CHANGED_BENEFICIARY" && f.status === "OPEN"));
   if (d.proposal && ["READY_FOR_APPROVAL", "AUTHORIZED", "EXECUTED", "FINISHED"].includes(d.proposal.state)) {
     loadProposal(d.proposal.proposal_id);
   } else if (state.proposalId) {
     $("#approval").hidden = true;
     state.proposalId = null;
   }
+}
+
+// ---- bank account changes (Secure ID, approved by a person) ---------------------
+
+const BANK_STATE = { PENDING_APPROVAL: ["warn", "Waiting for approval"], VERIFICATION_FAILED: ["bad", "Secure ID check failed"],
+  APPROVED: ["ok", "Approved"], REJECTED: ["muted", "Rejected"] };
+
+async function loadBankChanges(vendorId, invoiceId, changed) {
+  const el = $("#bankChanges");
+  if (!el) return;
+  let data;
+  try { data = await api(`/api/vendors/${encodeURIComponent(vendorId)}/bank-changes`); } catch (err) { return; }
+  const reqs = data.requests.map((r) => {
+    const [cls, label] = BANK_STATE[r.state] || ["muted", r.state];
+    return `<div class="finding ${r.state === "PENDING_APPROVAL" ? "REVIEW" : r.state === "VERIFICATION_FAILED" ? "BLOCK" : "RESOLVED"}">
+      <div class="row"><span><span class="chip ${cls}">${esc(label)}</span>
+        <span class="mono">${esc(r.account)} ${esc(r.ifsc)}</span> · ${esc(r.account_holder_name)}</span>
+        ${r.approvable ? `<span><button class="small" data-bc-approve="${esc(r.request_id)}" data-auth>Approve new account</button>
+          <button class="secondary small" data-bc-reject="${esc(r.request_id)}" data-auth>Reject</button></span>` : ""}</div>
+      <p class="small">Secure ID: account ${esc(r.account_status || "—")}, name match ${esc(r.name_match_result || "—")}${r.name_at_bank ? ` (bank has “${esc(r.name_at_bank)}”)` : ""}.
+        Confirmed by ${esc(r.requested_by)}: ${esc(r.confirmation_note)}${r.decided_reason ? ` · Rejected: ${esc(r.decided_reason)}` : ""}</p>
+    </div>`;
+  }).join("");
+  const form = data.secure_id_live ? `
+    <details ${changed && !data.requests.some((r) => r.approvable) ? "open" : ""}><summary>Change bank details</summary>
+      <p class="small muted">Only after confirming the new account with the firm by phone or in person. Do not copy it from the invoice alone.
+        Cashfree Secure ID checks the name on the account, then a person approves it.</p>
+      <form id="bankChangeForm" class="bank-form">
+        <input name="account_number" placeholder="New account number" inputmode="numeric" autocomplete="off" required>
+        <input name="ifsc" placeholder="IFSC" maxlength="11" autocomplete="off" required>
+        <input name="account_holder_name" placeholder="Account holder name (blank = saved name)" autocomplete="off">
+        <input name="confirmation_note" placeholder="How you confirmed it (who, when, which number)" required minlength="5">
+        <button data-auth>Check with Secure ID</button>
+      </form>
+    </details>` : `<p class="small muted">Turn on Cashfree Secure ID to change a vendor's bank details from here.</p>`;
+  el.innerHTML = `<h3>Bank account changes</h3>${reqs}${form}`;
+  renderSession();
+  const f = $("#bankChangeForm");
+  if (f) f.onsubmit = async (e) => {
+    e.preventDefault();
+    const json = Object.fromEntries(new FormData(f));
+    try {
+      const r = await api(`/api/vendors/${encodeURIComponent(vendorId)}/bank-changes`, { method: "POST", json });
+      toast(r.approvable ? "Name matches. Review and approve the new account." : `Secure ID: ${r.account_status}, ${r.name_match_result}. Cannot be approved.`);
+      loadBankChanges(vendorId, invoiceId, changed);
+    } catch (err) { toast(err.message); }
+  };
+  el.querySelectorAll("[data-bc-approve]").forEach((b) => b.onclick = async () => {
+    if (!confirm("Make this the vendor's saved bank account? Invoices with the old account will be blocked.")) return;
+    try { await api(`/api/bank-changes/${b.dataset.bcApprove}/approve`, { method: "POST" }); toast("Saved account updated"); await refreshBatch(); showInvoice(invoiceId); }
+    catch (err) { toast(err.message); }
+  });
+  el.querySelectorAll("[data-bc-reject]").forEach((b) => b.onclick = async () => {
+    const reason = prompt("Why is this change rejected? (recorded in the audit log)");
+    if (!reason) return;
+    try { await api(`/api/bank-changes/${b.dataset.bcReject}/reject`, { method: "POST", json: { reason } }); loadBankChanges(vendorId, invoiceId, changed); }
+    catch (err) { toast(err.message); }
+  });
 }
 
 // ---- approval card --------------------------------------------------------------
@@ -485,6 +545,11 @@ function describe(e) {
     case "REVERSAL_POSTED": return `Reversal posted for ${d.invoice_id}`;
     case "FINDING_RESOLVED": return `${d.invoice_id}: ${d.code} resolved (“${d.reason}”)`;
     case "WEBHOOK_REJECTED": return `Webhook rejected: ${d.reason}`;
+    case "BENEFICIARY_VERIFIED": return `Secure ID ${d.account}: ${d.account_status}, ${d.name_match_result}`;
+    case "BENEFICIARY_VERIFICATION_ERROR": return `Secure ID check failed for ${e.object_id}: ${d.error}`;
+    case "BANK_CHANGE_REQUESTED": return `Bank change ${d.from} → ${d.to} ${d.ifsc}: ${d.account_status}, ${d.name_match_result}`;
+    case "BANK_CHANGE_REJECTED": return `Bank change rejected (“${d.reason}”)`;
+    case "BENEFICIARY_CHANGED": return `Saved account changed ${d.from} → ${d.to} (v${d.from_version} → v${d.to_version})`;
     default: return `${e.action.replace(/_/g, " ").toLowerCase()} ${e.object_id || ""}`;
   }
 }

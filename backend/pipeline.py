@@ -242,7 +242,8 @@ def compute_findings(conn: sqlite3.Connection, invoice: dict) -> list[Finding]:
            else f"Saved account ••{ben['account_last4']} matches" if ben and (inv.claimed_account or inv.claimed_ifsc)
            else "No bank details printed; saved beneficiary stands"))
 
-    f = beneficiaries.check_verification(conn, vendor_id, db.now(), s.verification_max_age_days)
+    f = beneficiaries.check_verification(conn, vendor_id, db.now(), s.verification_max_age_days,
+                                         require_live=s.secureid_live)
     all_findings += f
     _step(conn, batch_id, invoice_id, "verification", f, "Checked saved beneficiary verification")
     return all_findings
@@ -257,6 +258,11 @@ def recompute_decision(conn: sqlite3.Connection, invoice_id: str) -> str:
 
 def run_checks(conn: sqlite3.Connection, invoice_id: str) -> str:
     """Idempotent: replaces open pipeline findings, keeps resolved ones, recomputes the decision."""
+    from . import verification
+
+    pre = db.row(conn, "SELECT vendor_id FROM invoices WHERE invoice_id=?", (invoice_id,))
+    if pre is not None:
+        verification.ensure_verified(conn, pre["vendor_id"])  # network call, outside the write transaction
     with db.immediate(conn):
         invoice = db.row(conn, "SELECT * FROM invoices WHERE invoice_id=?", (invoice_id,))
         if invoice is None:
