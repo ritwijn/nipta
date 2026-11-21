@@ -76,8 +76,8 @@ async function loadHealth() {
   const caps = h.capabilities;
   state.caps = caps;
   $("#voiceHint").textContent = caps.sarvam_stt === "LIVE"
-    ? "Tap 🎤, ask in Kannada, Hindi or English, tap again to send (max 25 s)."
-    : "Voice input is off (enable Sarvam speech-to-text). Typed questions work.";
+    ? "Speak or type in Kannada, Hindi or English. Tap the mic again to send. Asking never pays."
+    : "Type in Kannada, Hindi or English (voice is off). Asking never pays.";
   const el = $("#capabilities");
   el.innerHTML = Object.entries(CAP_LABELS).map(([k, label]) => {
     const v = caps[k];
@@ -85,6 +85,10 @@ async function loadHealth() {
     const text = v === "LIVE" ? "live" : v.replace(/^OFF_?/, "").replace(/_/g, " ").toLowerCase() || "off";
     return `<span class="chip ${cls}" title="${esc(v)}">${esc(label)}: ${esc(text)}</span>`;
   }).join("") + (caps.test_mode ? `<span class="chip warn">TEST MODE</span>` : "");
+  const live = Object.keys(CAP_LABELS).filter((k) => caps[k] === "LIVE").length;
+  const summary = $("#capsSummary");
+  summary.textContent = `Cashfree sandbox · ${live}/${Object.keys(CAP_LABELS).length} live`;
+  summary.className = `chip ${live ? "ok" : "warn"}`;
 }
 
 function renderSession() {
@@ -180,6 +184,11 @@ async function refreshBatch() {
       : `<p class="muted" style="font-weight:600;margin-top:18px">No bills yet. Add this Friday's bills or load the sample.</p>`)
     + (b.unprocessed_documents.length ? `<p class="small muted">${b.unprocessed_documents.length} not yet checked. Press Run checks.</p>` : "");
   document.querySelectorAll("#billList .bill").forEach((el) => el.onclick = () => showInvoice(el.dataset.id));
+  const hasBills = b.invoices.length > 0;
+  $("#welcome").classList.toggle("has-bills", hasBills);
+  $("#introText").hidden = hasBills;
+  $("#sixHead").hidden = !hasBills;
+  if (!hasBills) $("#today").innerHTML = "";
   $("#fridayTile").textContent = `${b.invoices.length} bills`;
   $("#cashTile").textContent = inr(b.cash_budget_paise);
   $("#budget").value = Math.round(b.cash_budget_paise / 100);
@@ -315,6 +324,7 @@ async function showInvoice(id) {
     <div class="panel-head detail-head">
       <h2>${esc(d.vendor || "Unknown vendor")} <span class="mono muted">${esc(d.invoice_id)}</span></h2>
       <div class="actions">
+        <button class="small" id="backHome">← Today</button>
         <span class="chip ${DECISION_CLASS[d.decision]}">${esc(d.decision_label)}</span>
         <a class="small" href="/api/invoices/${encodeURIComponent(d.invoice_id)}/source" target="_blank" rel="noopener">Original document</a>
         <button class="secondary" id="rerun" data-auth>Re-run checks</button>
@@ -354,6 +364,13 @@ async function showInvoice(id) {
       showInvoice(id);
     } catch (err) { toast(err.message); }
   });
+  $("#backHome").onclick = () => {
+    state.selected = null;
+    $("#detail").hidden = true;
+    $("#approval").hidden = true;
+    $("#welcome").hidden = false;
+    document.querySelectorAll("#billList .bill").forEach((el) => el.classList.remove("selected"));
+  };
   const callBtn = $("#vendorCall");
   if (callBtn) callBtn.onclick = async () => {
     try { await api(`/api/invoices/${id}/vendor-call?${lq()}`, { method: "POST" }); toast("Calling vendor"); showInvoice(id); }
@@ -557,8 +574,37 @@ async function loadPlan() {
   $("#plan").innerHTML = `
     <h3>Pay now</h3><ul class="plan-list">${plan.selected.map((e) => item(e, `#${e.rank} · ${inr(e.amount_paise)}${e.overdue_days ? ` · ${e.overdue_days}d overdue` : ""}`)).join("") || `<li class="muted">Nothing fits</li>`}</ul>
     ${plan.skipped.length ? `<h3>Skipped</h3><ul class="plan-list">${plan.skipped.map((e) => item(e, `${inr(e.amount_paise)} · exceeds remaining ${inr(e.remaining_budget_paise)}`)).join("")}</ul>` : ""}
-    ${plan.excluded.length ? `<h3>Not eligible</h3><ul class="plan-list">${plan.excluded.map((e) => item(e, esc(e.reason))).join("")}</ul>` : ""}
+    ${plan.excluded.length ? `<details><summary>Not in the plan (${plan.excluded.length})</summary><ul class="plan-list">${plan.excluded.map((e) => item(e, esc(e.reason.replace(/_/g, " ").toLowerCase()))).join("")}</ul></details>` : ""}
     <p class="small muted">Remaining ${inr(plan.remaining_paise)}. ${esc(plan.disclaimer)}</p>`;
+  renderToday(plan);
+}
+
+// Home: what needs Raghu today, in order: pay (plan order), don't pay, check, wait, done.
+function renderToday(plan) {
+  const b = state.batch;
+  if (!b || !b.invoices.length) return;
+  const inv = Object.fromEntries(b.invoices.map((i) => [i.invoice_id, i]));
+  const reason = (i) => ((i.findings || []).find((f) => f.status === "OPEN") || {}).explanation || "";
+  const row = (cls, title, sub, amt, id, action) => `
+    <li class="todo"><span class="dot ${cls}"></span>
+      <span class="what"><b>${esc(title)}</b><span>${esc(sub)}</span></span>
+      <span class="amt">${inr(amt)}</span>
+      ${action ? `<button class="small ${cls === "ok" ? "primary" : ""}" data-open="${esc(id)}">${esc(action)}</button>` : "<span></span>"}</li>`;
+  const items = [
+    ...plan.selected.map((e) => row("ok", `Pay ${e.vendor}`, `#${e.rank} in this Friday's plan · due ${e.due_date || "—"}${e.overdue_days ? ` · ${e.overdue_days}d overdue` : ""}`, e.amount_paise, e.invoice_id, "Review & pay")),
+    ...b.invoices.filter((i) => i.decision === "BLOCKED").map((i) => row("bad", `Don't pay ${i.vendor || i.invoice_id}`, reason(i), i.stated_total_paise, i.invoice_id,
+      i.findings.some((f) => f.code === "CHANGED_BENEFICIARY" && f.status === "OPEN") ? "Call vendor" : "See why")),
+    ...b.invoices.filter((i) => i.decision === "REVIEW").map((i) => row("warn", `Check ${i.vendor || i.invoice_id}`, reason(i), i.stated_total_paise, i.invoice_id, "Check")),
+    ...plan.skipped.map((e) => row("muted", `Wait: ${e.vendor}`, "Not enough cash left this Friday", e.amount_paise, e.invoice_id, "Open")),
+    ...b.invoices.filter((i) => i.payment_overlay).map((i) => row("muted", `Sent: ${i.vendor}`, i.payment_overlay.replace(/_/g, " ").toLowerCase(), i.stated_total_paise, i.invoice_id, "Status")),
+  ];
+  const n = (k) => b.invoices.filter((i) => i.decision === k).length;
+  const payNow = plan.selected.reduce((t, e) => t + e.amount_paise, 0);
+  $("#today").innerHTML = `
+    <h2 class="hero">Today · ${b.invoices.length} bills</h2>
+    <p>${plan.selected.length} to pay now (${inr(payNow)}), ${n("REVIEW")} to check, ${n("BLOCKED")} blocked. Cash left after the plan: ${inr(plan.remaining_paise)}.</p>
+    <ol class="todo-list">${items.join("")}</ol>`;
+  document.querySelectorAll("#today [data-open]").forEach((btn) => btn.onclick = () => showInvoice(btn.dataset.open));
 }
 
 // ---- activity -------------------------------------------------------------------
