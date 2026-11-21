@@ -139,7 +139,7 @@ select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px s
 
 /* Chips and status lights */
 .chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; max-width: 100%;
   font-family: var(--label); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
   background: var(--sunk); box-shadow: var(--sh-sunk); color: var(--ink2);
 }
