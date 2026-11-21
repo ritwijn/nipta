@@ -41,7 +41,7 @@ def parse_amount_paise(s: str | None) -> int | None:
     if not t:
         return None
     t = _CURRENCY.sub(" ", t)
-    t = t.replace("/-", " ").replace("only", " ").replace("Only", " ")
+    t = re.sub(r"\b(?:only|rupees?)\b", " ", t.replace("/-", " "), flags=re.IGNORECASE)
     t = t.strip().rstrip(".").strip()
     if t.startswith("-"):
         return None
@@ -86,21 +86,35 @@ def parse_quantity_milli(s: str | None) -> int | None:
     return int(milli)
 
 
+_MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+           "november", "december")
+
+
+def _month(name: str) -> int | None:
+    n = name.lower().rstrip(".")
+    n = "sep" if n == "sept" else n
+    return next((i for i, full in enumerate(_MONTHS, 1) if len(n) >= 3 and full.startswith(n)), None)
+
+
 def parse_date(s: str | None) -> date | None:
-    """dd/mm/yyyy, dd-mm-yy, dd.mm.yyyy, yyyy-mm-dd. Ambiguous or invalid -> None."""
+    """dd/mm/yyyy, dd-mm-yy, dd.mm.yyyy, yyyy-mm-dd, 21-Nov-26, 21 Nov 2026, Nov 21, 2026. Ambiguous -> None."""
     if s is None:
         return None
     t = to_ascii_digits(str(s)).strip()
-    m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", t)
-    if m:
+    if m := re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", t):
         y, mo, d = (int(x) for x in m.groups())
-    else:
-        m = re.fullmatch(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2}|\d{4})", t)
-        if not m:
-            return None
+    elif m := re.fullmatch(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2}|\d{4})", t):
         d, mo, y = (int(x) for x in m.groups())
-        if y < 100:
-            y += 2000
+    elif m := re.fullmatch(r"(\d{1,2})[\s\-/.]+([A-Za-z]{3,9}\.?)[\s\-/.,]+(\d{2}|\d{4})", t):
+        d, mo, y = int(m[1]), _month(m[2]), int(m[3])
+    elif m := re.fullmatch(r"([A-Za-z]{3,9}\.?)\s+(\d{1,2}),?\s+(\d{4})", t):
+        mo, d, y = _month(m[1]), int(m[2]), int(m[3])
+    else:
+        return None
+    if mo is None:
+        return None
+    if y < 100:
+        y += 2000
     try:
         return date(y, mo, d)
     except ValueError:
@@ -159,8 +173,34 @@ _HI_UNITS = {
     "सत्तानवे": 97, "अट्ठानवे": 98, "निन्यानवे": 99,
 }
 _HI_SCALES = {"सौ": 100, "हज़ार": 1_000, "हजार": 1_000, "लाख": 100_000, "करोड़": 10_000_000, "करोड": 10_000_000}
-_FILLER = {"rupees", "rupee", "rs", "inr", "and", "only", "रुपये", "रुपए", "रुपया", "मात्र", "केवल", "और"}
-_PAISE_WORDS = {"paise", "paisa", "पैसे", "पैसा"}
+
+_KN_UNITS = {
+    "ಸೊನ್ನೆ": 0, "ಒಂದು": 1, "ಎರಡು": 2, "ಮೂರು": 3, "ನಾಲ್ಕು": 4, "ಐದು": 5, "ಆರು": 6, "ಏಳು": 7, "ಎಂಟು": 8,
+    "ಒಂಬತ್ತು": 9, "ಹತ್ತು": 10, "ಹನ್ನೊಂದು": 11, "ಹನ್ನೆರಡು": 12, "ಹದಿಮೂರು": 13, "ಹದಿನಾಲ್ಕು": 14, "ಹದಿನೈದು": 15,
+    "ಹದಿನಾರು": 16, "ಹದಿನೇಳು": 17, "ಹದಿನೆಂಟು": 18, "ಹತ್ತೊಂಬತ್ತು": 19,
+    # Fused hundreds (ಐನೂರು = 500) are ordinary units here; "ಐದು ನೂರು" goes through the hundred word.
+    "ಇನ್ನೂರು": 200, "ಮುನ್ನೂರು": 300, "ನಾನೂರು": 400, "ಐನೂರು": 500, "ಆರುನೂರು": 600, "ಏಳುನೂರು": 700,
+    "ಎಂಟುನೂರು": 800, "ಒಂಬೈನೂರು": 900,
+}
+_KN_TENS = {"ಇಪ್ಪತ್ತು": 20, "ಮೂವತ್ತು": 30, "ನಲವತ್ತು": 40, "ಐವತ್ತು": 50, "ಅರವತ್ತು": 60, "ಎಪ್ಪತ್ತು": 70,
+            "ಎಂಬತ್ತು": 80, "ತೊಂಬತ್ತು": 90}
+_KN_VOWEL_SIGN = {"ಒ": "ೊ", "ಎ": "ೆ", "ಐ": "ೈ", "ಆ": "ಾ", "ಏ": "ೇ"}
+_KN_UNITS.update(_KN_TENS)
+for _tw, _tv in _KN_TENS.items():  # 21-99 written as one word: ಇಪ್ಪತ್ತೈದು, ಇಪ್ಪತ್ತಮೂರು / ಇಪ್ಪತ್ಮೂರು
+    for _uw, _uv in list(_KN_UNITS.items()):
+        if 1 <= _uv <= 9:
+            if _uw[0] in _KN_VOWEL_SIGN:
+                _KN_UNITS[_tw[:-1] + _KN_VOWEL_SIGN[_uw[0]] + _uw[1:]] = _tv + _uv
+            else:
+                _KN_UNITS[_tw[:-1] + _uw] = _KN_UNITS[_tw[:-2] + _uw] = _tv + _uv
+_KN_SCALES = {"ಸಾವಿರ": 1_000, "ಸಾವಿರದ": 1_000, "ಲಕ್ಷ": 100_000, "ಲಕ್ಷದ": 100_000, "ಕೋಟಿ": 10_000_000}
+_UNITS = {**_EN_UNITS, **_HI_UNITS, **_KN_UNITS}
+_HUNDREDS = {"hundred", "सौ", "ನೂರು", "ನೂರ"}
+_BIG_SCALES = {**_EN_SCALES, **_HI_SCALES, **_KN_SCALES}
+_AND = {"and", "&", "और", "ಮತ್ತು"}
+_FILLER = {"rupees", "rupee", "rs", "inr", "only", "रुपये", "रुपए", "रुपया", "रु", "मात्र", "केवल", "₹",
+           "ರೂಪಾಯಿ", "ರೂಪಾಯಿಗಳು", "ರೂ", "ಮಾತ್ರ"} | _AND
+_PAISE_WORDS = {"paise", "paisa", "पैसे", "पैसा", "ಪೈಸೆ"}
 
 
 def _words_to_int(tokens: list[str]) -> int | None:
@@ -168,15 +208,14 @@ def _words_to_int(tokens: list[str]) -> int | None:
     current = 0
     seen = False
     for tok in tokens:
-        if tok in _EN_UNITS or tok in _HI_UNITS:
-            current += _EN_UNITS.get(tok, _HI_UNITS.get(tok, 0))
+        if tok in _UNITS:
+            current += _UNITS[tok]
             seen = True
-        elif tok in ("hundred", "सौ"):
+        elif tok in _HUNDREDS:
             current = (current or 1) * 100
             seen = True
-        elif tok in _EN_SCALES or tok in _HI_SCALES:
-            scale = _EN_SCALES.get(tok) or _HI_SCALES[tok]
-            total += (current or 1) * scale
+        elif tok in _BIG_SCALES:
+            total += (current or 1) * _BIG_SCALES[tok]
             current = 0
             seen = True
         else:
@@ -185,18 +224,18 @@ def _words_to_int(tokens: list[str]) -> int | None:
 
 
 def words_to_paise(s: str | None) -> int | None:
-    """English and Hindi amount-in-words to paise. Anything unrecognised (e.g. Tamil) -> None."""
+    """English, Hindi and Kannada amount-in-words to paise. Anything unrecognised (e.g. Tamil) -> None."""
     if not s:
         return None
-    t = unicodedata.normalize("NFC", str(s)).casefold()
-    t = re.sub(r"[-,./()]", " ", t)
+    t = strip_zero_width(unicodedata.normalize("NFC", str(s))).casefold()
+    t = re.sub(r"[-,./()]", " ", t).replace("&", " & ").replace("₹", " ₹ ")
     tokens = [tok for tok in t.split() if tok]
     paise_idx = next((i for i, tok in enumerate(tokens) if tok in _PAISE_WORDS), None)
     if paise_idx is None:
         rupee_part, paise_part = tokens, []
     else:
         # The paise amount is the run of words between the last "and" and the word "paise".
-        and_idx = max((i for i in range(paise_idx) if tokens[i] in ("and", "और")), default=None)
+        and_idx = max((i for i in range(paise_idx) if tokens[i] in _AND), default=None)
         if and_idx is None:
             return None
         rupee_part, paise_part = tokens[:and_idx], tokens[and_idx + 1:paise_idx]
