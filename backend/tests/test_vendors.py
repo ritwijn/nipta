@@ -94,3 +94,38 @@ def test_vendor_list_masks_accounts(client):
     assert len(vendors) == 4
     assert all(v["beneficiary"]["account"].startswith("••") for v in vendors)
     assert "50100234569012" not in json.dumps(vendors)
+
+
+def test_vendor_draft_prefills_everything_for_signed_in_operator(client, conn):
+    iid = _shakti(conn)
+    d = client.get(f"/api/invoices/{iid}/vendor-draft").json()
+    assert d["display_name"] == "शक्ति हार्डवेयर सप्लायर्स" and d["account_holder_name"] == d["display_name"]
+    assert d["bank_account_number"] == "50200011876543" and d["ifsc"] == "HDFC0001234"
+    assert d["account_is_masked_on_invoice"] is False
+    # Public invoice view still never carries the full account.
+    assert "50200011876543" not in client.get(f"/api/invoices/{iid}/findings").text
+    # Approving with the prefilled values records where the account came from; it still starts unverified.
+    out = client.post("/api/vendors", json={"display_name": d["display_name"], "aliases": [],
+                                             "account_holder_name": d["account_holder_name"],
+                                             "bank_account_number": d["bank_account_number"],
+                                             "bank_account_number_confirm": d["bank_account_number"],
+                                             "ifsc": d["ifsc"], "source_invoice_id": iid}).json()
+    audit = json.loads(db.row(conn, "SELECT detail_json FROM audit_events WHERE action='VENDOR_APPROVED'")["detail_json"])
+    assert audit["account_source"] == "MATCHES_INVOICE_PRINT"
+    assert set(findings(conn, iid)) == {"VERIFICATION_MISSING"}
+    assert out["matches_invoice_print"] is True
+
+
+def test_vendor_draft_masked_print_is_not_filled(client, conn):
+    from backend.schemas import ExtractionRaw
+    iid = add_invoice(conn, ExtractionRaw.model_validate(SHAKTI_INVOICE | {"invoice_number": "INV-2026-118",
+                                                                            "bank_account": "XXXXXX6543"}))
+    d = client.get(f"/api/invoices/{iid}/vendor-draft").json()
+    assert d["bank_account_number"] is None and d["account_is_masked_on_invoice"] is True
+    assert d["printed_account_masked"] == "••6543"
+
+
+def test_vendor_draft_requires_session(client, conn):
+    iid = _shakti(conn)
+    client.headers.pop("Authorization")
+    assert client.get(f"/api/invoices/{iid}/vendor-draft").status_code == 401

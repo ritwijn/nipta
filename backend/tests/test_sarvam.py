@@ -292,3 +292,18 @@ def test_process_response_reports_new_documents_and_summary(client, conn, sarvam
     assert r["new_documents"] == 1 and r["summary"]["total"] == 1
     again = client.post(f"/api/batches/{bid}/process").json()
     assert again["new_documents"] == 0 and len(sarvam_mock.bodies("/doc-ai/v1/job/extract")) == 1
+
+
+def test_add_bills_to_current_batch_keeps_earlier_bills(client, conn, sarvam_mock):
+    live(sarvam_vision_enabled=True)
+    bid = conn.batch_id  # the list being worked on (demo batch, 6 bills)
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-230"}
+    r1 = client.post(f"/api/batches/{bid}/documents", files={"files": ("one.jpg", io.BytesIO(b"\xff\xd8\xff one"), "image/jpeg")}).json()
+    assert r1["batch_id"] == bid
+    client.post(f"/api/batches/{bid}/process")
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-231"}
+    client.post(f"/api/batches/{bid}/documents", files={"files": ("two.jpg", io.BytesIO(b"\xff\xd8\xff two"), "image/jpeg")})
+    client.post(f"/api/batches/{bid}/process")
+    numbers = [i["invoice_number"] for i in client.get(f"/api/batches/{bid}").json()["invoices"]]
+    assert len(numbers) == 8 and "CP-230" in numbers and "CP-231" in numbers  # earlier upload still listed
+    assert len(client.get("/api/batches").json()) == 1  # no extra batches created

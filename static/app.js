@@ -237,7 +237,9 @@ $("#upload").addEventListener("change", async (e) => {
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
   try {
-    const r = await api("/api/batches", { method: "POST", body: fd });
+    // Add to the list being worked on, so earlier bills stay visible; start a batch only if there is none.
+    const url = state.batchId ? `/api/batches/${state.batchId}/documents` : "/api/batches";
+    const r = await api(url, { method: "POST", body: fd });
     const dups = r.documents.filter((d) => d.duplicate_upload);
     if (r.all_duplicates) {
       await loadBatches(r.batch_id);
@@ -576,20 +578,28 @@ async function loadVendors() {
     <span class="chip ${v.verification ? (v.verification.source === "LIVE_SECURE_ID_BAV" ? "ok" : "muted") : "warn"}">${v.verification ? esc(v.verification.source === "LIVE_SECURE_ID_BAV" ? "verified" : "seeded mock") : "not verified"}</span></span></li>`).join("");
 }
 
-function openVendorDialog(inv) {
+async function openVendorDialog(inv) {
   const f = $("#vendorForm");
   f.reset();
   $("#vendorError").textContent = "";
   const hint = $("#vendorFromInvoice");
   if (inv) {
-    f.display_name.value = inv.vendor_name_raw || "";
-    f.account_holder_name.value = inv.vendor_name_raw || "";
     f.source_invoice_id.value = inv.invoice_id;
-    const b = inv.bank_comparison;
+    let draft = null;
+    try { draft = await api(`/api/invoices/${encodeURIComponent(inv.invoice_id)}/vendor-draft`); }
+    catch (err) { toast(err.message); }
+    f.display_name.value = (draft && draft.display_name) || inv.vendor_name_raw || "";
+    f.account_holder_name.value = (draft && draft.account_holder_name) || inv.vendor_name_raw || "";
+    if (draft && draft.bank_account_number) {
+      f.bank_account_number.value = draft.bank_account_number;
+      f.bank_account_number_confirm.value = draft.bank_account_number;
+    }
+    if (draft && draft.ifsc) f.ifsc.value = draft.ifsc;
     hint.hidden = false;
-    hint.innerHTML = `From <span class="mono">${esc(inv.invoice_id)}</span>. The invoice prints account <span class="mono">${esc(b.printed_account || "none")}</span>
-      ${b.printed_ifsc ? `IFSC <span class="mono">${esc(b.printed_ifsc)}</span>` : ""}. Printed details are only a claim: confirm the account with the supplier
-      (e.g. by phone) and type it below. If it differs from the print, this invoice will be blocked as a changed account.`;
+    hint.innerHTML = `Filled from what <span class="mono">${esc(inv.invoice_id)}</span> prints.
+      ${draft && draft.account_is_masked_on_invoice ? `The invoice only shows <span class="mono">${esc(draft.printed_account_masked)}</span>, so type the full account. ` : ""}
+      Printed details are a claim: confirm the account with the supplier before approving. The new account stays
+      unverified until Secure ID verifies it or you mark <span class="mono">VERIFICATION_MISSING</span> reviewed with a reason.`;
   } else {
     f.source_invoice_id.value = "";
     hint.hidden = true;
