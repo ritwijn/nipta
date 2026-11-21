@@ -259,3 +259,10 @@ button.mic.recording { background: linear-gradient(180deg, var(--red), var(--red
   background: var(--ink); color: #F9F1DC; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw;
 }
 .toast.show { opacity: 1; }
+
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); padding: 0; width: min(520px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+.vendor-form { display: flex; flex-direction: column; gap: 10px; padding: 18px; }
+.vendor-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.vendor-form input { color: var(--ink); }
+.bad-text { color: var(--bad); }

@@ -105,11 +105,39 @@
       </section>
 
       <section class="panel">
+        <div class="panel-head"><h2>Approved vendors</h2><button id="addVendor" class="secondary" data-auth>Add vendor</button></div>
+        <ul id="vendorList" class="plan-list"></ul>
+      </section>
+
+      <section class="panel">
         <div class="panel-head"><h2>What Nipta did</h2><button id="refreshAudit" class="link">Refresh</button></div>
         <ol id="activity" class="activity"></ol>
       </section>
     </aside>
   </main>
+
+  <dialog id="vendorDialog">
+    <form id="vendorForm" method="dialog" class="vendor-form">
+      <h2>Approve a vendor</h2>
+      <p class="small muted">Only approved vendors can be paid. Type the bank account yourself (twice); it is never copied
+        from an invoice. A new account stays unverified until Secure ID verifies it or you mark the
+        <span class="mono">VERIFICATION_MISSING</span> finding as reviewed with a reason.</p>
+      <div id="vendorFromInvoice" class="note-data small" hidden></div>
+      <label>Vendor name<input name="display_name" required minlength="2" maxlength="120" autocomplete="off"></label>
+      <label>Other names (any script, comma separated)<input name="aliases" autocomplete="off" placeholder="e.g. ಶಕ್ತಿ ಹಾರ್ಡ್‌ವೇರ್, शक्ति हार्डवेयर"></label>
+      <label>Account holder name<input name="account_holder_name" required minlength="2" autocomplete="off"></label>
+      <label>Account number<input name="bank_account_number" required inputmode="numeric" autocomplete="off"></label>
+      <label>Confirm account number<input name="bank_account_number_confirm" required inputmode="numeric" autocomplete="off"></label>
+      <label>IFSC<input name="ifsc" required maxlength="11" autocomplete="off" style="text-transform:uppercase"></label>
+      <label>Payment terms (days, optional)<input name="payment_terms_days" type="number" min="0" max="365"></label>
+      <input type="hidden" name="source_invoice_id">
+      <div id="vendorError" class="small bad-text"></div>
+      <div class="btn-row">
+        <button type="submit" id="vendorSubmit">Approve vendor</button>
+        <button type="button" class="secondary" id="vendorCancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script src="app.js"></script>

@@ -56,7 +56,9 @@ async function api(path, opts = {}) {
   const body = type.includes("application/json") ? await res.json() : await res.text();
   if (!res.ok) {
     if (res.status === 401 && state.token && path !== "/api/auth/session") signOut();
-    const msg = body && body.error ? `${body.error}: ${body.message}` : (body.detail || res.statusText);
+    const msg = body && body.error ? `${body.error}: ${body.message}`
+      : Array.isArray(body && body.detail) ? body.detail.map((d) => `${(d.loc || []).slice(-1)[0]}: ${d.msg.replace(/^Value error, /, "")}`).join("; ")
+      : (body.detail || res.statusText);
     throw new Error(msg);
   }
   return body;
@@ -329,6 +331,7 @@ async function showInvoice(id) {
         <a class="small" href="/api/invoices/${encodeURIComponent(d.invoice_id)}/source" target="_blank" rel="noopener">Original document</a>
         <button class="secondary" id="rerun" data-auth>Re-run checks</button>
         ${d.decision === "ELIGIBLE" ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
+        ${d.findings.some((f) => f.code === "VENDOR_UNRESOLVED" && f.status === "OPEN") ? `<button id="approveVendorBtn" data-auth>Approve this vendor…</button>` : ""}
       </div>
     </div>
     ${verdictHtml}
@@ -387,6 +390,8 @@ async function showInvoice(id) {
       toast(`${id}: ${inv.decision}${reasons ? ` (${reasons})` : ""}`);
     } catch (err) { toast(err.message); }
   };
+  const av = $("#approveVendorBtn");
+  if (av) av.onclick = () => openVendorDialog(d);
   const propose = $("#propose");
   if (propose) propose.onclick = async () => {
     try {
@@ -562,6 +567,67 @@ $("#micBtn").addEventListener("click", () => {
   if (voice.rec) voice.rec.stop(); else startRecording();
 });
 
+// ---- vendor approval ----------------------------------------------------------
+
+async function loadVendors() {
+  const list = await api("/api/vendors");
+  $("#vendorList").innerHTML = list.map((v) => `<li><span>${esc(v.display_name)}<br><span class="small muted">${esc(v.aliases.filter((a) => a !== v.display_name).join(" · "))}</span></span>
+    <span class="small">${v.beneficiary ? `<span class="mono">${esc(v.beneficiary.account)}</span> ${esc(v.beneficiary.ifsc)}` : "no account"}<br>
+    <span class="chip ${v.verification ? (v.verification.source === "LIVE_SECURE_ID_BAV" ? "ok" : "muted") : "warn"}">${v.verification ? esc(v.verification.source === "LIVE_SECURE_ID_BAV" ? "verified" : "seeded mock") : "not verified"}</span></span></li>`).join("");
+}
+
+function openVendorDialog(inv) {
+  const f = $("#vendorForm");
+  f.reset();
+  $("#vendorError").textContent = "";
+  const hint = $("#vendorFromInvoice");
+  if (inv) {
+    f.display_name.value = inv.vendor_name_raw || "";
+    f.account_holder_name.value = inv.vendor_name_raw || "";
+    f.source_invoice_id.value = inv.invoice_id;
+    const b = inv.bank_comparison;
+    hint.hidden = false;
+    hint.innerHTML = `From <span class="mono">${esc(inv.invoice_id)}</span>. The invoice prints account <span class="mono">${esc(b.printed_account || "none")}</span>
+      ${b.printed_ifsc ? `IFSC <span class="mono">${esc(b.printed_ifsc)}</span>` : ""}. Printed details are only a claim: confirm the account with the supplier
+      (e.g. by phone) and type it below. If it differs from the print, this invoice will be blocked as a changed account.`;
+  } else {
+    f.source_invoice_id.value = "";
+    hint.hidden = true;
+  }
+  $("#vendorDialog").showModal();
+}
+
+$("#addVendor").addEventListener("click", () => openVendorDialog(null));
+$("#vendorCancel").addEventListener("click", () => $("#vendorDialog").close());
+$("#vendorForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = {
+    display_name: f.display_name.value.trim(),
+    aliases: f.aliases.value.split(",").map((s) => s.trim()).filter(Boolean),
+    account_holder_name: f.account_holder_name.value.trim(),
+    bank_account_number: f.bank_account_number.value,
+    bank_account_number_confirm: f.bank_account_number_confirm.value,
+    ifsc: f.ifsc.value.trim().toUpperCase(),
+    payment_terms_days: f.payment_terms_days.value ? Number(f.payment_terms_days.value) : null,
+    source_invoice_id: f.source_invoice_id.value || null,
+  };
+  if (body.bank_account_number !== body.bank_account_number_confirm) {
+    $("#vendorError").textContent = "The two account numbers do not match.";
+    return;
+  }
+  try {
+    const r = await busy($("#vendorSubmit"), "Approving…", () => api("/api/vendors", { method: "POST", json: body }));
+    $("#vendorDialog").close();
+    await loadVendors();
+    await refreshBatch();
+    const re = r.rechecked_invoices.map((x) => `${x.invoice_id}: ${x.decision}`).join(", ");
+    toast(`Approved ${r.vendor.display_name} (${r.vendor.beneficiary.account}). ${r.verification === "LIVE_SECURE_ID_BAV" ? "Verified with Secure ID." : "Not verified yet."}${re ? " Re-checked " + re : ""}`);
+    if (body.source_invoice_id) showInvoice(body.source_invoice_id);
+    if (r.matches_invoice_print === false) toast("Warning: the account you typed differs from the one printed on the invoice; it will be blocked.");
+  } catch (err) { $("#vendorError").textContent = err.message; }
+});
+
 // ---- payment plan -------------------------------------------------------------
 
 $("#planForm").addEventListener("submit", (e) => { e.preventDefault(); loadPlan(); });
@@ -644,3 +710,4 @@ $("#refreshAudit").addEventListener("click", loadActivity);
 renderSession();
 loadHealth().catch((e) => toast(e.message));
 loadBatches().catch((e) => toast(e.message));
+loadVendors().catch((e) => toast(e.message));

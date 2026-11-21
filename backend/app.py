@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import agent, db, explain, pipeline, runtime_lock
+from . import agent, db, explain, pipeline, runtime_lock, vendors
 from .config import capability_report, get_settings
 from .errors import NiptaError
 from .integrations import cashfree_secureid, relay, sarvam
@@ -482,11 +482,8 @@ def vendor_verification(vendor_id: str, conn: sqlite3.Connection = Depends(get_c
     }
 
 
-@app.post("/api/vendors/{vendor_id}/verify")
-def verify_vendor(vendor_id: str, operator: str = Depends(require_session),
-                  conn: sqlite3.Connection = Depends(get_conn)):
-    if not get_settings().secureid_live:
-        raise NiptaError("SECURE_ID_UNAVAILABLE", "Cashfree Secure ID is not enabled for this deployment", 409)
+def _verify_saved_beneficiary(conn, vendor_id: str, operator: str) -> None:
+    """Run Secure ID bank-account verification on the vendor's SAVED beneficiary (never invoice claims)."""
     ben = beneficiaries.active_beneficiary(conn, vendor_id)
     if ben is None:
         raise NiptaError("NO_APPROVED_BENEFICIARY", "Vendor has no saved beneficiary", 409)
@@ -504,10 +501,42 @@ def verify_vendor(vendor_id: str, operator: str = Depends(require_session),
         )
         db.audit(conn, operator, "BENEFICIARY_VERIFIED", vendor_id,
                  {"source": "LIVE_SECURE_ID_BAV", "account_status": r.account_status,
-                  "name_match_result": r.name_match_result})
+                  "account_status_code": r.account_status_code, "name_match_result": r.name_match_result,
+                  "name_match_score": r.name_match_score, "name_at_bank": r.name_at_bank,
+                  "bank_name": r.bank_name, "reference_id": r.reference_id, "request_id": r.request_id})
+
+
+@app.post("/api/vendors/{vendor_id}/verify")
+def verify_vendor(vendor_id: str, operator: str = Depends(require_session),
+                  conn: sqlite3.Connection = Depends(get_conn)):
+    if not get_settings().secureid_live:
+        raise NiptaError("SECURE_ID_UNAVAILABLE", "Cashfree Secure ID is not enabled for this deployment", 409)
+    _verify_saved_beneficiary(conn, vendor_id, operator)
     for inv in db.rows(conn, "SELECT invoice_id FROM invoices WHERE vendor_id=?", (vendor_id,)):
         pipeline.run_checks(conn, inv["invoice_id"])
     return vendor_verification(vendor_id, conn)
+
+
+@app.get("/api/vendors")
+def get_vendors(conn: sqlite3.Connection = Depends(get_conn)):
+    return vendors.list_vendors(conn)
+
+
+@app.post("/api/vendors")
+def approve_vendor(body: vendors.VendorCreate, operator: str = Depends(require_session),
+                   conn: sqlite3.Connection = Depends(get_conn)):
+    """Operator approves a new vendor and its bank account (typed twice). Re-checks unresolved invoices."""
+    created = vendors.approve_vendor(conn, body, operator)
+    verification = "NOT_VERIFIED"
+    if get_settings().secureid_live:
+        try:
+            _verify_saved_beneficiary(conn, created["vendor_id"], operator)
+            verification = "LIVE_SECURE_ID_BAV"
+        except NiptaError as exc:
+            verification = f"VERIFICATION_ERROR: {exc.code}"
+    rechecked = vendors.recheck_unresolved(conn)
+    return {**created, "verification": verification, "rechecked_invoices": rechecked,
+            "vendor": next(v for v in vendors.list_vendors(conn) if v["vendor_id"] == created["vendor_id"])}
 
 
 @app.get("/api/payment-plan")
