@@ -337,3 +337,50 @@ def test_how_many_safe_today_keyword_router(conn, text, lang, expect):
 def test_why_question_about_a_bill_still_explains_it(conn):
     out = agent.handle_message(conn, "OP", conn.batch_id, "why is INV-C not safe today?", "en")
     assert [(c["tool"], c["invoice_id"]) for c in out["tool_calls"]] == [("explain_findings", "INV-C")]
+
+
+def test_multiple_file_upload_reads_and_checks_each(client, conn, sarvam_mock):
+    """Three bills in one upload: each gets its own Document AI job, invoice and checks."""
+    live(sarvam_vision_enabled=True)
+    results = iter([HANDWRITTEN_KANNADA | {"invoice_number": "CP-301"},
+                    HANDWRITTEN_KANNADA | {"invoice_number": "CP-302", "stated_total": "₹9,999"},   # wrong total
+                    HANDWRITTEN_KANNADA | {"invoice_number": "CP-303", "bank_account": "XXXX9999"}])  # changed account
+    orig = sarvam_mock.handler
+
+    def handler(request):
+        if request.url.path == "/doc-ai/v1/job/extract":
+            sarvam_mock.result = next(results)
+            sarvam_mock.status_sequence = ["completed"]
+        return orig(request)
+
+    http_mod.TRANSPORTS["sarvam"] = httpx.MockTransport(handler)
+    files = [("files", (f"bill{i}.jpg", io.BytesIO(b"\xff\xd8\xff bill %d" % i), "image/jpeg")) for i in range(3)]
+    up = client.post(f"/api/batches/{conn.batch_id}/documents", files=files).json()
+    assert len(up["documents"]) == 3 and not any(d["duplicate_upload"] for d in up["documents"])
+    r = client.post(f"/api/batches/{conn.batch_id}/process").json()
+    assert r["new_documents"] == 3 and len(r["new_invoice_ids"]) == 3
+    assert len(sarvam_mock.bodies("/doc-ai/v1/job/extract")) == 3
+    inv = {i["invoice_number"]: i for i in client.get(f"/api/batches/{conn.batch_id}").json()["invoices"]}
+    assert inv["CP-301"]["decision"] == "ELIGIBLE"
+    assert inv["CP-302"]["decision"] == "BLOCKED"   # arithmetic / words mismatch
+    assert inv["CP-303"]["decision"] == "BLOCKED"   # changed beneficiary
+    assert all(inv[n]["is_upload"] for n in ("CP-301", "CP-302", "CP-303"))
+
+
+def test_multiple_upload_with_one_duplicate_and_one_bad_type(client, conn, sarvam_mock):
+    live(sarvam_vision_enabled=True)
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-310"}
+    client.post(f"/api/batches/{conn.batch_id}/documents", files={"files": ("a.jpg", io.BytesIO(b"\xff\xd8\xff A"), "image/jpeg")})
+    up = client.post(f"/api/batches/{conn.batch_id}/documents", files=[
+        ("files", ("a-again.jpg", io.BytesIO(b"\xff\xd8\xff A"), "image/jpeg")),
+        ("files", ("b.jpg", io.BytesIO(b"\xff\xd8\xff B"), "image/jpeg"))]).json()
+    assert [d["duplicate_upload"] for d in up["documents"]] == [True, False]  # duplicate skipped, new one kept
+    bad = client.post(f"/api/batches/{conn.batch_id}/documents", files=[
+        ("files", ("ok.jpg", io.BytesIO(b"\xff\xd8\xff C"), "image/jpeg")),
+        ("files", ("notes.txt", io.BytesIO(b"hello"), "text/plain"))])
+    assert bad.status_code == 200  # the good file goes through, the bad one is reported
+    assert [d["name"] for d in bad.json()["documents"]] == ["ok.jpg"]
+    assert bad.json()["rejected"][0]["name"] == "notes.txt"
+    only_bad = client.post(f"/api/batches/{conn.batch_id}/documents",
+                           files=[("files", ("photo.heic", io.BytesIO(b"heic"), "image/heic"))])
+    assert only_bad.status_code == 400 and only_bad.json()["error"] == "UPLOAD_REJECTED"

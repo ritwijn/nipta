@@ -334,6 +334,7 @@ $("#upload").addEventListener("change", async (e) => {
     const url = state.batchId ? `/api/batches/${state.batchId}/documents` : "/api/batches";
     const r = await api(url, { method: "POST", body: fd });
     const dups = r.documents.filter((d) => d.duplicate_upload);
+    if (r.rejected && r.rejected.length) toast(`Skipped ${r.rejected.length} file(s): ${r.rejected.map((x) => `${x.name} (${x.reason.replace(/;.*$/, "")})`).join(", ")}. Export iPhone photos as JPEG.`);
     if (r.all_duplicates) {
       await loadBatches(r.batch_id);
       const inv = dups[0].existing_invoice_id;

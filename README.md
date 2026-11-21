@@ -191,6 +191,37 @@ ever sets an amount or approves a payment**. Explanations come from fixed templa
 All money is in the **Cashfree sandbox**, and all vendors, bills and accounts are made up. Payment Links are not used: they
 collect money, they don't pay suppliers.
 
+### Every external API call
+
+The complete list of partner endpoints Nipta calls (or receives), taken from [`backend/integrations/`](backend/integrations).
+
+**Sarvam AI** · base `https://api.sarvam.ai` · auth header `api-subscription-key` (chat also sends `Authorization: Bearer`)
+
+| # | Method and endpoint | Used for | Code |
+|---|---|---|---|
+| 1 | `POST /doc-ai/v1/job/extract` (multipart: `file`, JSON `schema`, `mode=basic`) | Start a Document AI (Sarvam Vision) job that reads a bill into verbatim strings with per-field confidence | `extract_invoice_doc_ai` |
+| 2 | `GET /doc-ai/v1/job/{job_id}/status` | Poll the job until `completed` / `partially_completed` / `failed` / `rejected` | `extract_invoice_doc_ai` |
+| 3 | `GET /doc-ai/v1/job/{job_id}/results?format=json` | Fetch the extracted fields (`result`) and confidences (`annotations`) | `extract_invoice_doc_ai` |
+| 4 | `POST /v1/chat/completions` (`sarvam-105b`, `tools`) | "Ask Nipta": choose which read-only tool answers a question | `chat_tool_call` |
+| 5 | `POST /v1/chat/completions` (`sarvam-105b`, `image_url` data URL) | Alternative bill reading when `SARVAM_EXTRACTION_MODE=chat` | `extract_invoice_chat` |
+| 6 | `POST /speech-to-text` (multipart: `file`, `model=saaras:v4`, `language_code=unknown`) | Voice questions, language auto-detected | `transcribe` |
+| 7 | `POST /text-to-speech` (`text` ≤ 2,500 chars, `language_code`, `model=bulbul:v3`) | Spoken answers and "Speak status" (returns base64 WAV in `audios[0]`) | `text_to_speech` |
+
+**Cashfree** · sandbox base `https://sandbox.cashfree.com` · auth headers `x-client-id`, `x-client-secret`, `x-request-id`, plus
+`x-cf-signature` (RSA-OAEP of `"clientId.unixTimestamp"` with the account's 2FA public key) when configured
+
+| # | Method and endpoint | Used for | Code |
+|---|---|---|---|
+| 8 | `POST /payout/transfers` (`x-api-version: 2024-01-01`) | Send one approved payment: `transfer_id` (fixed per proposal), amount from the frozen snapshot, saved beneficiary | `create_transfer` |
+| 9 | `GET /payout/transfers?transfer_id=…` (`x-api-version: 2024-01-01`) | Check status / reconcile an uncertain transfer by its original ID; returns status, `status_code`, UTR, mode, beneficiary | `get_transfer` |
+| 10 | `POST /verification/bank-account/sync` (Secure ID) | Verify a vendor's **saved** account: `account_status`, `name_match_result`, `name_at_bank` | `verify_bank_account` |
+| 11 | **Inbound** `POST /api/webhooks/cashfree` (Payouts webhook to Nipta) | Transfer events; HMAC-SHA256 of `x-webhook-timestamp` + raw body checked against `x-webhook-signature` | `verify_webhook`, `status.process_webhook` |
+| 12 | `POST <RELAY_VENDOR_CALL_URL>` (Relay inbound webhook) | Ask the Relay voice agent to call a vendor whose bank details changed | `start_vendor_call` |
+| 13 | **Inbound** `POST /api/relay/vendor-call-result` (Relay HTTP action to Nipta) | The call outcome, checked with `x-nipta-relay-secret` | route in `app.py` |
+
+Credentials stay in `.env` and the 2FA public key in `secrets/` (both git-ignored); they are never sent to the browser,
+logged, or passed to a model.
+
 <details>
 <summary><b>What's been confirmed live</b></summary>
 
@@ -198,8 +229,8 @@ collect money, they don't pay suppliers.
 |---|---|
 | **Sarvam Document AI** | Live; verified on printed English and Hindi invoices |
 | **Sarvam Saaras / Bulbul** | Live; voice verified in Kannada, spoken replies in Kannada and English |
-| **Cashfree Payouts V2** | Live in sandbox: signed request accepted, a real transfer reached `PENDING` |
-| **Cashfree Secure ID** | Built; live keys pending, so seeded checks are labelled "seeded mock" |
+| **Cashfree Payouts V2** | Live in sandbox: signed transfer to Cashfree's test account `7766671501729 / SBIN0000003` reached **`SUCCESS / COMPLETED`** with bank UTR `0542994022892293`; one settlement posted |
+| **Cashfree Secure ID** | Built; the sandbox account replies "Verification Suite is not enabled for this account", so seeded checks are labelled "seeded mock" until Cashfree enables it |
 | **Cashfree Relay** | Built; needs the Relay agent and a tunnel, see [`docs/relay-vendor-call.md`](docs/relay-vendor-call.md) |
 
 To see what's switched on in your own setup, run `./run.sh --check` or look at the app's header chip

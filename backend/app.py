@@ -287,18 +287,23 @@ def list_batches(conn: sqlite3.Connection = Depends(get_conn)):
                          " ORDER BY created_at DESC")
 
 
-async def _read_uploads(files: list[UploadFile] | None) -> list[tuple[str, str | None, bytes]]:
+async def _read_uploads(files: list[UploadFile] | None) -> tuple[list[tuple[str, str | None, bytes]], list[dict]]:
+    """Valid files go through; unsupported or oversized ones are reported, not allowed to sink the whole upload."""
     if not files:
         raise NiptaError("NO_FILES", "Upload at least one PDF, PNG or JPEG, or load the fixture batch", 400)
-    payloads = []
+    payloads, rejected = [], []
     for f in files:
         content = await f.read()
         try:
             pipeline.validate_upload(f.filename or "upload", f.content_type or "", len(content))
         except pipeline.UploadRejected as exc:
-            raise NiptaError("UPLOAD_REJECTED", f"{f.filename}: {exc}", 400)
+            rejected.append({"name": f.filename or "upload", "reason": str(exc)})
+            continue
         payloads.append((f.filename or "upload", f.content_type, content))
-    return payloads
+    if not payloads:
+        raise NiptaError("UPLOAD_REJECTED", "; ".join(f"{r['name']}: {r['reason']}" for r in rejected), 400,
+                         detail={"rejected": rejected})
+    return payloads, rejected
 
 
 def _ingest_uploads(conn, operator: str, payloads, batch_id: str | None) -> dict:
@@ -342,7 +347,8 @@ async def create_batch(
         with db.immediate(conn):
             batch_id = pipeline.load_fixture_batch(conn, operator)
         return {"batch_id": batch_id, "source": "FIXTURE"}
-    return _ingest_uploads(conn, operator, await _read_uploads(files), None)
+    payloads, rejected = await _read_uploads(files)
+    return {**_ingest_uploads(conn, operator, payloads, None), "rejected": rejected}
 
 
 @app.post("/api/batches/{batch_id}/documents")
@@ -355,7 +361,8 @@ async def add_documents(
     """Add bills to an existing batch, so the list being worked on keeps every earlier bill."""
     if not db.row(conn, "SELECT 1 AS x FROM batches WHERE batch_id=?", (batch_id,)):
         raise NiptaError("NOT_FOUND", "Batch not found", 404)
-    return _ingest_uploads(conn, operator, await _read_uploads(files), batch_id)
+    payloads, rejected = await _read_uploads(files)
+    return {**_ingest_uploads(conn, operator, payloads, batch_id), "rejected": rejected}
 
 
 @app.post("/api/batches/{batch_id}/process")
