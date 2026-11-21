@@ -1,11 +1,19 @@
 # Nipta Implementation Guide
 
-**Version:** 1.0
-**Implements:** `architecture.md` v2.1, which implements `PRD.md` v4.0 ("Pay the right bill, to the right person")
+**Version:** 1.1
+**Implements:** `architecture.md` v2.1, which implements `PRD.md` v4.1 ("Pay the right bill, to the right person")
 **Date:** 21 November 2026
 **Audience:** The solo builder, working inside the 3.5-hour event window
 
 This guide turns the architecture into a build sequence. For each part it lists the files to create, the functions they expose, the database schema, configuration, and the tests that prove each step works. Where this guide and `architecture.md` disagree, the architecture wins. Function names and environment variables marked *proposed* are suggestions this guide adds, not contracts from the architecture.
+
+### Changes in v1.1 (PRD v4.1)
+
+Three small additions, none of which changes the build order or cut order:
+
+- **Phase 2 (rules):** after findings are stored, `GET /api/batches/{id}` returns a `summary` with counts by decision and by finding code. Pure aggregation over `invoice_findings`.
+- **Phase 3 (approval):** render the approval card in the operator's language from the existing templates, with `amount_words` generated from `amount_paise` by a deterministic function (*proposed* name: `amount_to_words(amount_paise, lang)`) for `ta-IN`, `hi-IN` and `en-IN`.
+- **Tests:** add PRD T23–T28 to `backend/tests/`, next to T01–T22.
 
 ---
 
