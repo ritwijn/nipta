@@ -34,11 +34,9 @@ to the right person*). Synthetic data and sandbox money only.
 
 ## The trailer
 
-<p align="center">
-  <a href="docs/media/nipta-trailer.mp4"><img src="docs/readme/trailer-poster.png" alt="Play the 2-minute Nipta trailer: Lakshmi, a shop owner figurine, at her counter" width="100%"></a>
-</p>
+https://github.com/user-attachments/assets/6925b763-9586-47de-86de-72062bc27522
 
-<p align="center"><b>Two minutes, one Friday.</b> <a href="docs/media/nipta-trailer.mp4">Watch the trailer (16:9)</a> · <a href="docs/media/nipta-trailer-tall.mp4">tall version for phones (9:16)</a></p>
+<p align="center"><b>Two minutes, one Friday.</b> Plays above on GitHub · <a href="https://github.com/user-attachments/assets/0def9dce-348f-4ce8-a7d5-fead0f5463ff">tall version for phones (9:16)</a> · source files in <a href="docs/media">docs/media</a></p>
 
 Lakshmi, who runs the shop with Raghu, walks through one Friday in the real app: the bill that doesn't add up, the changed
 bank account, the bill sent twice, a question asked in Kannada, and one approved payment.
