@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import sqlite3
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,16 +14,17 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, 
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import agent, db, explain, pipeline, runtime_lock, verification
+from . import agent, db, explain, pipeline, runtime_lock, vendors, verification
 from .config import capability_report, get_settings
 from .errors import NiptaError
-from .integrations import sarvam
+from .integrations import relay, sarvam
 from .integrations.cashfree_payouts import ProviderRejected, ProviderUncertain
 from .payments import approval, execution, status
 from .rules import beneficiaries, priority
 from .rules.normalize import format_inr, mask_account
 from .schemas import (AgentMessageRequest, ApproveRequest, BankChangeRequest, ProviderEventRequest,
-                      RejectBankChangeRequest, ResolveFindingRequest, SessionRequest, StructuredInvoiceRequest, TTSRequest)
+                      RejectBankChangeRequest, ResolveFindingRequest, SessionRequest, StructuredInvoiceRequest,
+                      TTSRequest, VendorCallResult)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -230,8 +232,10 @@ def create_session(body: SessionRequest, conn: sqlite3.Connection = Depends(get_
 
 @app.get("/api/batches")
 def list_batches(conn: sqlite3.Connection = Depends(get_conn)):
+    # Batches with no documents (e.g. created by an older duplicate-upload path) are hidden, not deleted.
     return db.rows(conn, "SELECT b.*, (SELECT COUNT(*) FROM invoices i WHERE i.batch_id=b.batch_id) AS invoice_count"
-                         " FROM batches b ORDER BY created_at DESC")
+                         " FROM batches b WHERE EXISTS (SELECT 1 FROM documents d WHERE d.batch_id=b.batch_id)"
+                         " ORDER BY created_at DESC")
 
 
 @app.post("/api/batches")
@@ -256,12 +260,31 @@ async def create_batch(
             raise NiptaError("UPLOAD_REJECTED", f"{f.filename}: {exc}", 400)
         payloads.append((f.filename or "upload", f.content_type, content))
     with db.immediate(conn):
-        batch_id = pipeline.create_batch(conn, "UPLOAD", operator)
-        stored = []
+        # Identical files (same SHA-256) are already stored: point at the existing invoice instead of creating
+        # a second payable. Only genuinely new files go into a new batch.
+        stored, fresh = [], []
         for name, mime, content in payloads:
-            doc, is_new = pipeline.store_document(conn, batch_id, content, name, mime)
-            stored.append({"name": name, "document_id": doc["document_id"], "duplicate_upload": not is_new})
-    return {"batch_id": batch_id, "source": "UPLOAD", "documents": stored}
+            existing = db.row(conn, "SELECT d.document_id, d.batch_id, i.invoice_id FROM documents d"
+                                    " LEFT JOIN invoices i ON i.document_id=d.document_id WHERE d.sha256=?",
+                              (hashlib.sha256(content).hexdigest(),))
+            if existing:
+                db.audit(conn, operator, "DUPLICATE_UPLOAD", existing["document_id"],
+                         {"original_name": name, "existing_invoice_id": existing["invoice_id"],
+                          "note": "Identical file already stored; no second payable created."},
+                         batch_id=existing["batch_id"])
+                stored.append({"name": name, "document_id": existing["document_id"], "duplicate_upload": True,
+                               "existing_invoice_id": existing["invoice_id"], "existing_batch_id": existing["batch_id"]})
+            else:
+                fresh.append((name, mime, content))
+        if not fresh:
+            first = stored[0]
+            return {"batch_id": first["existing_batch_id"], "source": "UPLOAD", "documents": stored,
+                    "all_duplicates": True}
+        batch_id = pipeline.create_batch(conn, "UPLOAD", operator)
+        for name, mime, content in fresh:
+            doc, _ = pipeline.store_document(conn, batch_id, content, name, mime)
+            stored.append({"name": name, "document_id": doc["document_id"], "duplicate_upload": False})
+    return {"batch_id": batch_id, "source": "UPLOAD", "documents": stored, "all_duplicates": False}
 
 
 @app.post("/api/batches/{batch_id}/process")
@@ -269,7 +292,11 @@ def process_batch(batch_id: str, operator: str = Depends(require_session),
                   conn: sqlite3.Connection = Depends(get_conn)):
     if not db.row(conn, "SELECT 1 AS x FROM batches WHERE batch_id=?", (batch_id,)):
         raise NiptaError("NOT_FOUND", "Batch not found", 404)
-    return {"batch_id": batch_id, "invoices": pipeline.process_batch(conn, batch_id)}
+    new_docs = db.row(conn, "SELECT COUNT(*) AS n FROM documents d WHERE d.batch_id=? AND NOT EXISTS"
+                            " (SELECT 1 FROM invoices i WHERE i.document_id=d.document_id)", (batch_id,))["n"]
+    invoices = pipeline.process_batch(conn, batch_id)
+    return {"batch_id": batch_id, "invoices": invoices, "new_documents": new_docs,
+            "summary": explain.batch_summary(conn, batch_id)}
 
 
 @app.get("/api/batches/{batch_id}")
@@ -304,6 +331,7 @@ def add_invoice(body: StructuredInvoiceRequest, operator: str = Depends(require_
 def rerun_checks(invoice_id: str, operator: str = Depends(require_session),
                  conn: sqlite3.Connection = Depends(get_conn)):
     _invoice_or_404(conn, invoice_id)
+    pipeline.retry_extraction(conn, invoice_id)  # e.g. uploaded while Sarvam vision was off
     pipeline.run_checks(conn, invoice_id)
     return invoice_summary(conn, _invoice_or_404(conn, invoice_id))
 
@@ -327,7 +355,82 @@ def invoice_findings(invoice_id: str, lang: str = "en", conn: sqlite3.Connection
         "saved_beneficiary": f"{ben['beneficiary_id']} v{ben['version']}" if ben else None,
     }
     out["explanation"] = explain.explain_invoice(conn, invoice_id, lang)
+    out["vendor_call"] = _vendor_call(conn, invoice_id, lang)
     return out
+
+
+# ---- vendor call (Relay): ask the vendor, on the number on file, whether a changed account is theirs ----
+
+CALL_OUTCOMES = {"CONFIRMED_CHANGE", "DENIED_CHANGE", "NO_ANSWER", "UNCLEAR"}
+
+
+def _vendor_call(conn, invoice_id: str, lang: str) -> dict | None:
+    req = db.row(conn, "SELECT dedupe_key FROM audit_events WHERE object_id=? AND action='VENDOR_CALL_REQUESTED'"
+                       " ORDER BY event_id DESC LIMIT 1", (invoice_id,))
+    if not req:
+        return None
+    res = db.row(conn, "SELECT detail_json FROM audit_events WHERE dedupe_key=?", (f"{req['dedupe_key']}:result",))
+    detail = json.loads(res["detail_json"]) if res else {}
+    st = detail.get("outcome", "REQUESTED")
+    return {"call_id": req["dedupe_key"], "status": st, "text": explain.VENDOR_CALL[st][explain._lang(lang)],
+            "summary": detail.get("summary")}
+
+
+@app.post("/api/invoices/{invoice_id}/vendor-call")
+def start_vendor_call(invoice_id: str, lang: str = "en", operator: str = Depends(require_session),
+                      conn: sqlite3.Connection = Depends(get_conn)):
+    s = get_settings()
+    if not s.relay_live:
+        raise NiptaError("RELAY_UNAVAILABLE", "Relay vendor call is not configured", 409)
+    inv = _invoice_or_404(conn, invoice_id)
+    f = db.row(conn, "SELECT evidence_json FROM findings WHERE invoice_id=? AND code='CHANGED_BENEFICIARY'"
+                     " AND status='OPEN'", (invoice_id,))
+    if not f:
+        raise NiptaError("NO_BANK_CHANGE", "Vendor calls are only for invoices with changed bank details", 409)
+    v = db.row(conn, "SELECT display_name, phone FROM vendors WHERE vendor_id=?", (inv["vendor_id"],))
+    # Only the registry number (or the demo override), never a number printed on the invoice.
+    phone = s.demo_call_phone or (v or {}).get("phone")
+    if not phone:
+        raise NiptaError("NO_PHONE_ON_FILE", "No phone number on file for this vendor", 409)
+    ev = json.loads(f["evidence_json"])
+    call_id = f"CALL_{uuid.uuid4().hex[:16]}"
+    try:
+        relay.start_vendor_call({  # shape follows Relay's sample event: order_id, amount, customer{...}
+            "event": "vendor_bank_change_check",
+            "order_id": call_id,
+            "amount": inv["stated_total_paise"] / 100 if inv["stated_total_paise"] is not None else None,
+            "customer": {"name": v["display_name"], "phone": phone, "language": inv["language"] or "en-IN"},
+            "invoice_number": inv["invoice_number_raw"],
+            "saved_account": ev.get("saved_account"),
+            "printed_account": ev.get("printed_account"),
+            "callback_url": f"{s.public_base_url}/api/relay/vendor-call-result",
+        })
+    except Exception as exc:
+        raise NiptaError("RELAY_ERROR", f"Relay did not accept the call: {type(exc).__name__}", 502)
+    with db.immediate(conn):
+        db.audit(conn, operator, "VENDOR_CALL_REQUESTED", invoice_id,
+                 {"phone_last4": phone[-4:], "demo_phone": bool(s.demo_call_phone)},
+                 dedupe_key=call_id, batch_id=inv["batch_id"])
+    return _vendor_call(conn, invoice_id, lang)
+
+
+@app.post("/api/relay/vendor-call-result")
+def vendor_call_result(body: VendorCallResult, x_nipta_relay_secret: str | None = Header(default=None),
+                       conn: sqlite3.Connection = Depends(get_conn)):
+    secret = get_settings().relay_callback_secret
+    if not secret or not hmac.compare_digest((x_nipta_relay_secret or "").encode(), secret.encode()):
+        raise HTTPException(401, "Bad Relay secret")
+    req = db.row(conn, "SELECT object_id, batch_id FROM audit_events WHERE action='VENDOR_CALL_REQUESTED'"
+                       " AND dedupe_key=?", (body.call_id,))
+    if not req:
+        raise NiptaError("NOT_FOUND", "Unknown call_id", 404)
+    outcome = body.outcome.strip().upper().replace(" ", "_")
+    with db.immediate(conn):  # replays are ignored by the dedupe key
+        db.audit(conn, "relay", "VENDOR_CALL_RESULT", req["object_id"],
+                 {"outcome": outcome if outcome in CALL_OUTCOMES else "UNCLEAR", "summary": body.summary},
+                 dedupe_key=f"{body.call_id}:result", batch_id=req["batch_id"])
+    # Information only: no decision changes here. The invoice stays BLOCKED whatever the vendor says.
+    return {"ok": True}
 
 
 @app.get("/api/invoices/{invoice_id}/source")
@@ -380,18 +483,45 @@ def vendor_verification(vendor_id: str, conn: sqlite3.Connection = Depends(get_c
     }
 
 
+def _verify_saved_beneficiary(conn, vendor_id: str, operator: str) -> None:
+    """Run Secure ID bank-account verification on the vendor's SAVED beneficiary (never invoice claims)."""
+    try:
+        verification.verify_saved_account(conn, vendor_id, operator)
+    except (ProviderUncertain, ProviderRejected) as exc:
+        raise NiptaError("SECURE_ID_ERROR", str(exc), 502)
+
+
 @app.post("/api/vendors/{vendor_id}/verify")
 def verify_vendor(vendor_id: str, operator: str = Depends(require_session),
                   conn: sqlite3.Connection = Depends(get_conn)):
     if not get_settings().secureid_live:
         raise NiptaError("SECURE_ID_UNAVAILABLE", "Cashfree Secure ID is not enabled for this deployment", 409)
-    try:
-        verification.verify_saved_account(conn, vendor_id, operator)
-    except (ProviderUncertain, ProviderRejected) as exc:
-        raise NiptaError("SECURE_ID_ERROR", str(exc), 502)
+    _verify_saved_beneficiary(conn, vendor_id, operator)
     for inv in db.rows(conn, "SELECT invoice_id FROM invoices WHERE vendor_id=?", (vendor_id,)):
         pipeline.run_checks(conn, inv["invoice_id"])
     return vendor_verification(vendor_id, conn)
+
+
+@app.get("/api/vendors")
+def get_vendors(conn: sqlite3.Connection = Depends(get_conn)):
+    return vendors.list_vendors(conn)
+
+
+@app.post("/api/vendors")
+def approve_vendor(body: vendors.VendorCreate, operator: str = Depends(require_session),
+                   conn: sqlite3.Connection = Depends(get_conn)):
+    """Operator approves a new vendor and its bank account (typed twice). Re-checks unresolved invoices."""
+    created = vendors.approve_vendor(conn, body, operator)
+    verified = "NOT_VERIFIED"
+    if get_settings().secureid_live:
+        try:
+            _verify_saved_beneficiary(conn, created["vendor_id"], operator)
+            verified = "LIVE_SECURE_ID_BAV"
+        except NiptaError as exc:
+            verified = f"VERIFICATION_ERROR: {exc.code}"
+    rechecked = vendors.recheck_unresolved(conn)
+    return {**created, "verification": verified, "rechecked_invoices": rechecked,
+            "vendor": next(v for v in vendors.list_vendors(conn) if v["vendor_id"] == created["vendor_id"])}
 
 
 def _vendor_or_404(conn, vendor_id: str) -> dict:
@@ -486,7 +616,7 @@ def agent_message(body: AgentMessageRequest, operator: str = Depends(require_ses
 
 MAX_VOICE_BYTES = 10 * 1024 * 1024
 NOT_HEARD = {"en": "I didn't catch that. Please try again or type your question.",
-             "ta": "சரியாகக் கேட்கவில்லை. மீண்டும் முயற்சிக்கவும் அல்லது தட்டச்சு செய்யவும்.",
+             "kn": "ಸರಿಯಾಗಿ ಕೇಳಿಸಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಹೇಳಿ ಅಥವಾ ಟೈಪ್ ಮಾಡಿ.",
              "hi": "मैं समझ नहीं पाया। कृपया दोबारा बोलें या टाइप करें।"}
 
 
@@ -514,7 +644,7 @@ def agent_voice(
     except sarvam.SarvamError as exc:
         raise NiptaError("STT_ERROR", f"Speech-to-text failed: {exc}", 502)
     detected = sarvam.CODE_TO_LANG.get(stt["language_code"] or "")
-    reply_lang = detected or (language if language in ("en", "ta", "hi") else "en")
+    reply_lang = detected or (language if language in ("en", "kn", "hi") else "en")
     db.audit(conn, operator, "VOICE_TRANSCRIBED", None,
              {"language_code": stt["language_code"], "chars": len(stt["transcript"]),
               "transcript": stt["transcript"][:300], "request_id": stt["request_id"]}, batch_id=batch_id)

@@ -1,19 +1,19 @@
 {
   "_fixture_invoice_id": "INV-B",
-  "language": "ta-IN",
-  "vendor_name": "தமிழ் டூல்ஸ்",
+  "language": "kn-IN",
+  "vendor_name": "ತಮಿಳ್ ಟೂಲ್ಸ್",
   "invoice_number": "TT-091",
   "invoice_date": "08/11/2026",
   "due_date": "23/11/2026",
   "line_items": [
     {
-      "description": "சுத்தியல் (claw hammer)",
+      "description": "ಸುತ್ತಿಗೆ (claw hammer)",
       "quantity": "10",
       "unit_price": "₹250.00",
       "line_total": "₹2,500.00"
     },
     {
-      "description": "ஸ்க்ரூடிரைவர் செட் (screwdriver set)",
+      "description": "ಸ್ಕ್ರೂಡ್ರೈವರ್ ಸೆಟ್ (screwdriver set)",
       "quantity": "9",
       "unit_price": "₹200.00",
       "line_total": "₹1,800.00"
@@ -26,7 +26,7 @@
   "amount_in_words": "Rupees Four Thousand Five Hundred Only",
   "bank_account": null,
   "ifsc": null,
-  "notes": "நன்றி.",
+  "notes": "ಧನ್ಯವಾದಗಳು.",
   "field_confidence": {
     "stated_total": 0.96,
     "subtotal": 0.95

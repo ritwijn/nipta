@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Severity = Literal["BLOCK", "REVIEW", "INFO"]
 Decision = Literal["ELIGIBLE", "REVIEW", "BLOCKED"]
-Language = Literal["en", "ta", "hi"]
+Language = Literal["en", "kn", "hi"]
 
 
 class LineItemRaw(BaseModel):
@@ -94,6 +94,12 @@ class AgentMessageRequest(BaseModel):
     batch_id: str
     text: str = Field(min_length=1, max_length=2000)
     language: Language = "en"
+
+
+class VendorCallResult(BaseModel):
+    call_id: str = Field(min_length=1, max_length=64)
+    outcome: str = Field(max_length=40)  # free text from Relay; normalised in the route
+    summary: str | None = Field(default=None, max_length=1000)
 
 
 class TTSRequest(BaseModel):

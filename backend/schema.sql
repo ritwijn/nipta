@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS vendors (
   aliases_json            TEXT NOT NULL,
   statutory_risk          INTEGER NOT NULL DEFAULT 0,
   deadline_basis_verified INTEGER NOT NULL DEFAULT 0,
-  payment_terms_days      INTEGER
+  payment_terms_days      INTEGER,
+  phone                   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS beneficiaries (

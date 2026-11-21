@@ -11,125 +11,149 @@ from . import db
 from .rules.normalize import format_inr
 
 DECISION = {
-    "ELIGIBLE": {"en": "Eligible for payment", "ta": "பணம் செலுத்தத் தகுதியானது", "hi": "भुगतान के योग्य"},
-    "REVIEW": {"en": "Needs review", "ta": "மறுபரிசீலனை தேவை", "hi": "समीक्षा आवश्यक"},
-    "BLOCKED": {"en": "Blocked", "ta": "தடுக்கப்பட்டது", "hi": "रोका गया"},
+    "ELIGIBLE": {"en": "Eligible for payment", "kn": "ಪಾವತಿಗೆ ಅರ್ಹ", "hi": "भुगतान के योग्य"},
+    "REVIEW": {"en": "Needs review", "kn": "ಪರಿಶೀಲನೆ ಅಗತ್ಯ", "hi": "समीक्षा आवश्यक"},
+    "BLOCKED": {"en": "Blocked", "kn": "ತಡೆಹಿಡಿಯಲಾಗಿದೆ", "hi": "रोका गया"},
 }
 
 STATUS = {
     "REQUEST_RESERVED": {"en": "Payment reserved; not yet sent to Cashfree",
-                         "ta": "பணம் ஒதுக்கப்பட்டது; இன்னும் Cashfree-க்கு அனுப்பப்படவில்லை",
+                         "kn": "ಪಾವತಿ ಕಾಯ್ದಿರಿಸಲಾಗಿದೆ; ಇನ್ನೂ Cashfree ಗೆ ಕಳುಹಿಸಿಲ್ಲ",
                          "hi": "भुगतान आरक्षित; अभी Cashfree को नहीं भेजा गया"},
     "INITIATED": {"en": "Cashfree accepted the transfer request",
-                  "ta": "Cashfree பரிமாற்றக் கோரிக்கையை ஏற்றது",
+                  "kn": "Cashfree ವರ್ಗಾವಣೆ ವಿನಂತಿಯನ್ನು ಸ್ವೀಕರಿಸಿದೆ",
                   "hi": "Cashfree ने ट्रांसफ़र अनुरोध स्वीकार किया"},
     "PENDING": {"en": "Transfer in progress; not yet confirmed as credited",
-                "ta": "பரிமாற்றம் நடைபெறுகிறது; வரவு இன்னும் உறுதிசெய்யப்படவில்லை",
+                "kn": "ವರ್ಗಾವಣೆ ಪ್ರಗತಿಯಲ್ಲಿದೆ; ಜಮಾ ಆಗಿರುವುದು ಇನ್ನೂ ದೃಢಪಟ್ಟಿಲ್ಲ",
                 "hi": "ट्रांसफ़र जारी है; जमा होने की पुष्टि अभी नहीं हुई"},
     "COMPLETED": {"en": "Payment completed and confirmed by Cashfree",
-                  "ta": "பணம் செலுத்தப்பட்டது, Cashfree உறுதிசெய்தது",
+                  "kn": "ಪಾವತಿ ಪೂರ್ಣಗೊಂಡಿದೆ, Cashfree ದೃಢಪಡಿಸಿದೆ",
                   "hi": "भुगतान पूरा हुआ, Cashfree ने पुष्टि की"},
     "FAILED": {"en": "Payment failed; no money was settled",
-               "ta": "பணம் செலுத்துதல் தோல்வியடைந்தது; பணம் செல்லவில்லை",
+               "kn": "ಪಾವತಿ ವಿಫಲವಾಗಿದೆ; ಯಾವುದೇ ಹಣ ಹೋಗಿಲ್ಲ",
                "hi": "भुगतान विफल; कोई राशि नहीं गई"},
     "UNKNOWN": {"en": "Outcome not established; do not re-pay",
-                "ta": "முடிவு உறுதியாகவில்லை; மீண்டும் செலுத்த வேண்டாம்",
+                "kn": "ಫಲಿತಾಂಶ ಖಚಿತವಾಗಿಲ್ಲ; ಮತ್ತೆ ಪಾವತಿಸಬೇಡಿ",
                 "hi": "परिणाम स्पष्ट नहीं; दोबारा भुगतान न करें"},
     "REVERSED": {"en": "The bank reversed this payment; it needs review",
-                 "ta": "வங்கி இந்தப் பணத்தைத் திருப்பியது; மறுபரிசீலனை தேவை",
+                 "kn": "ಬ್ಯಾಂಕ್ ಈ ಪಾವತಿಯನ್ನು ಹಿಂತಿರುಗಿಸಿದೆ; ಪರಿಶೀಲನೆ ಅಗತ್ಯ",
                  "hi": "बैंक ने यह भुगतान वापस कर दिया; समीक्षा आवश्यक"},
     "SIMULATED": {"en": "Simulated: no Cashfree transfer was made",
-                  "ta": "உருவகப்படுத்தப்பட்டது: Cashfree பரிமாற்றம் எதுவும் செய்யப்படவில்லை",
+                  "kn": "ಅನುಕರಣೆ: ಯಾವುದೇ Cashfree ವರ್ಗಾವಣೆ ಮಾಡಲಾಗಿಲ್ಲ",
                   "hi": "सिम्युलेटेड: कोई Cashfree ट्रांसफ़र नहीं हुआ"},
 }
 
 FINDING = {
     "ARITHMETIC_MISMATCH": {
         "en": "Totals do not add up: stated {stated}, computed {computed}.",
-        "ta": "மொத்தங்கள் பொருந்தவில்லை: குறிப்பிட்டது {stated}, கணக்கிட்டது {computed}.",
+        "kn": "ಮೊತ್ತಗಳು ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ: ನಮೂದಿಸಿದ್ದು {stated}, ಲೆಕ್ಕಹಾಕಿದ್ದು {computed}.",
         "hi": "जोड़ मेल नहीं खाता: लिखा {stated}, गणना {computed}।"},
     "ARITHMETIC_UNVERIFIABLE": {
         "en": "The total could not be verified: {reason}",
-        "ta": "மொத்தத்தைச் சரிபார்க்க முடியவில்லை: {reason}",
+        "kn": "ಒಟ್ಟು ಮೊತ್ತವನ್ನು ಪರಿಶೀಲಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ: {reason}",
         "hi": "कुल राशि सत्यापित नहीं हो सकी: {reason}"},
     "WORDS_FIGURES_MISMATCH": {
         "en": "Amount in words ({words}) does not match the figures ({figures}).",
-        "ta": "எழுத்தில் உள்ள தொகை ({words}) எண்களுடன் ({figures}) பொருந்தவில்லை.",
+        "kn": "ಅಕ್ಷರಗಳಲ್ಲಿನ ಮೊತ್ತ ({words}) ಅಂಕಿಗಳೊಂದಿಗೆ ({figures}) ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ.",
         "hi": "शब्दों में राशि ({words}) अंकों ({figures}) से मेल नहीं खाती।"},
     "WORDS_UNPARSABLE": {
         "en": "The amount in words could not be read, so it was not compared with {figures}.",
-        "ta": "எழுத்தில் உள்ள தொகையைப் படிக்க முடியவில்லை; {figures} உடன் ஒப்பிடப்படவில்லை.",
+        "kn": "ಅಕ್ಷರಗಳಲ್ಲಿನ ಮೊತ್ತವನ್ನು ಓದಲಾಗಲಿಲ್ಲ; {figures} ಜೊತೆ ಹೋಲಿಸಲಾಗಿಲ್ಲ.",
         "hi": "शब्दों में राशि पढ़ी नहीं जा सकी, इसलिए {figures} से तुलना नहीं हुई।"},
     "POSSIBLE_DUPLICATE": {
         "en": "Possible duplicate of {matched} (score {score}): {signals}.",
-        "ta": "{matched} இன் நகலாக இருக்கலாம் (மதிப்பெண் {score}): {signals}.",
+        "kn": "{matched} ನ ನಕಲು ಆಗಿರಬಹುದು (ಅಂಕ {score}): {signals}.",
         "hi": "{matched} की संभावित डुप्लिकेट (स्कोर {score}): {signals}।"},
     "CONFIRMED_DUPLICATE": {
         "en": "Same vendor and invoice number as {matched}.",
-        "ta": "{matched} போலவே அதே விற்பனையாளர், அதே விலைப்பட்டியல் எண்.",
+        "kn": "{matched} ನಂತೆಯೇ ಅದೇ ಮಾರಾಟಗಾರ ಮತ್ತು ಅದೇ ಇನ್‌ವಾಯ್ಸ್ ಸಂಖ್ಯೆ.",
         "hi": "{matched} जैसा ही विक्रेता और इनवॉइस नंबर।"},
     "CHANGED_BENEFICIARY": {
         "en": "Printed bank account {printed} differs from the saved account {saved}. The saved account was not changed.",
-        "ta": "அச்சிடப்பட்ட வங்கிக் கணக்கு {printed}, சேமித்த கணக்கு {saved} இலிருந்து வேறுபடுகிறது. சேமித்த கணக்கு மாற்றப்படவில்லை.",
+        "kn": "ಮುದ್ರಿತ ಬ್ಯಾಂಕ್ ಖಾತೆ {printed}, ಉಳಿಸಿದ ಖಾತೆ {saved} ಗಿಂತ ಭಿನ್ನವಾಗಿದೆ. ಉಳಿಸಿದ ಖಾತೆಯನ್ನು ಬದಲಾಯಿಸಲಾಗಿಲ್ಲ.",
         "hi": "छपा बैंक खाता {printed} सहेजे गए खाते {saved} से अलग है। सहेजा गया खाता नहीं बदला गया।"},
     "NO_APPROVED_BENEFICIARY": {
         "en": "This vendor has no approved bank account on file.",
-        "ta": "இந்த விற்பனையாளருக்கு அங்கீகரிக்கப்பட்ட வங்கிக் கணக்கு இல்லை.",
+        "kn": "ಈ ಮಾರಾಟಗಾರರಿಗೆ ಅನುಮೋದಿತ ಬ್ಯಾಂಕ್ ಖಾತೆ ದಾಖಲಾಗಿಲ್ಲ.",
         "hi": "इस विक्रेता का कोई स्वीकृत बैंक खाता दर्ज नहीं है।"},
     "VENDOR_UNRESOLVED": {
         "en": "Vendor \"{vendor}\" is not in the approved vendor list.",
-        "ta": "விற்பனையாளர் \"{vendor}\" அங்கீகரிக்கப்பட்ட பட்டியலில் இல்லை.",
+        "kn": "ಮಾರಾಟಗಾರ \"{vendor}\" ಅನುಮೋದಿತ ಪಟ್ಟಿಯಲ್ಲಿ ಇಲ್ಲ.",
         "hi": "विक्रेता \"{vendor}\" स्वीकृत सूची में नहीं है।"},
     "VERIFICATION_MISSING": {
         "en": "The saved bank account has no current verification.",
-        "ta": "சேமித்த வங்கிக் கணக்கிற்கு தற்போதைய சரிபார்ப்பு இல்லை.",
+        "kn": "ಉಳಿಸಿದ ಬ್ಯಾಂಕ್ ಖಾತೆಗೆ ಪ್ರಸ್ತುತ ಪರಿಶೀಲನೆ ಇಲ್ಲ.",
         "hi": "सहेजे गए बैंक खाते का कोई वर्तमान सत्यापन नहीं है।"},
     "VERIFICATION_FAILED": {
         "en": "Bank verification reports the saved account as invalid.",
-        "ta": "வங்கிச் சரிபார்ப்பு சேமித்த கணக்கை செல்லாதது எனக் காட்டுகிறது.",
+        "kn": "ಬ್ಯಾಂಕ್ ಪರಿಶೀಲನೆಯ ಪ್ರಕಾರ ಉಳಿಸಿದ ಖಾತೆ ಅಮಾನ್ಯವಾಗಿದೆ.",
         "hi": "बैंक सत्यापन के अनुसार सहेजा गया खाता अमान्य है।"},
     "ACCOUNT_NAME_MISMATCH": {
         "en": "The name at the bank only partly matches the vendor ({result}).",
-        "ta": "வங்கியில் உள்ள பெயர் விற்பனையாளருடன் பகுதியாக மட்டுமே பொருந்துகிறது ({result}).",
+        "kn": "ಬ್ಯಾಂಕ್‌ನಲ್ಲಿರುವ ಹೆಸರು ಮಾರಾಟಗಾರರ ಹೆಸರಿಗೆ ಭಾಗಶಃ ಮಾತ್ರ ಹೊಂದುತ್ತದೆ ({result}).",
         "hi": "बैंक में दर्ज नाम विक्रेता से आंशिक रूप से ही मेल खाता है ({result})।"},
     "DOCUMENT_INCOMPLETE": {
         "en": "Some required fields are missing or unreadable: {fields}.",
-        "ta": "சில தேவையான புலங்கள் இல்லை அல்லது படிக்க முடியவில்லை: {fields}.",
+        "kn": "ಕೆಲವು ಅಗತ್ಯ ವಿವರಗಳು ಇಲ್ಲ ಅಥವಾ ಓದಲಾಗುತ್ತಿಲ್ಲ: {fields}.",
         "hi": "कुछ आवश्यक फ़ील्ड गायब या अपठनीय हैं: {fields}।"},
     "LOW_CONFIDENCE_FIELD": {
         "en": "Low reading confidence on: {fields}.",
-        "ta": "இவற்றைப் படிப்பதில் குறைந்த நம்பகத்தன்மை: {fields}.",
+        "kn": "ಇವುಗಳನ್ನು ಓದುವಲ್ಲಿ ಕಡಿಮೆ ವಿಶ್ವಾಸ: {fields}.",
         "hi": "इन्हें पढ़ने में कम विश्वास: {fields}।"},
     "DOCUMENT_UNREADABLE": {
         "en": "The document could not be read.",
-        "ta": "ஆவணத்தைப் படிக்க முடியவில்லை.",
+        "kn": "ದಾಖಲೆಯನ್ನು ಓದಲಾಗಲಿಲ್ಲ.",
         "hi": "दस्तावेज़ पढ़ा नहीं जा सका।"},
     "PAYMENT_REVERSED": {
         "en": "A completed payment ({transfer_id}) was reversed by the bank. Nothing is re-paid automatically.",
-        "ta": "முடிந்த பணம் ({transfer_id}) வங்கியால் திருப்பப்பட்டது. தானாக மீண்டும் செலுத்தப்படாது.",
+        "kn": "ಪೂರ್ಣಗೊಂಡ ಪಾವತಿ ({transfer_id}) ಬ್ಯಾಂಕ್‌ನಿಂದ ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ. ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಮತ್ತೆ ಪಾವತಿಸಲಾಗುವುದಿಲ್ಲ.",
         "hi": "पूरा हुआ भुगतान ({transfer_id}) बैंक ने वापस किया। अपने-आप दोबारा भुगतान नहीं होगा।"},
 }
 
 PAID_PREFIX = {
-    "ALREADY_PAID": {"en": "Already paid ({transfer_id}). ", "ta": "ஏற்கனவே செலுத்தப்பட்டது ({transfer_id}). ",
+    "ALREADY_PAID": {"en": "Already paid ({transfer_id}). ", "kn": "ಈಗಾಗಲೇ ಪಾವತಿಸಲಾಗಿದೆ ({transfer_id}). ",
                      "hi": "पहले ही भुगतान हो चुका ({transfer_id})। "},
-    "PAYMENT_IN_FLIGHT": {"en": "Payment in flight ({transfer_id}). ", "ta": "பணம் செல்லும் வழியில் ({transfer_id}). ",
+    "PAYMENT_IN_FLIGHT": {"en": "Payment in flight ({transfer_id}). ", "kn": "ಪಾವತಿ ಪ್ರಕ್ರಿಯೆಯಲ್ಲಿದೆ ({transfer_id}). ",
                           "hi": "भुगतान प्रक्रिया में ({transfer_id})। "},
 }
 
 SIGNAL_NAMES = {
-    "SAME_STATED_TOTAL": {"en": "same total", "ta": "அதே மொத்தம்", "hi": "समान कुल राशि"},
-    "LINE_ITEMS_OVERLAP": {"en": "same items", "ta": "அதே பொருட்கள்", "hi": "समान सामान"},
-    "INVOICE_NUMBER_RELATED": {"en": "similar invoice number", "ta": "ஒத்த விலைப்பட்டியல் எண்",
+    "SAME_STATED_TOTAL": {"en": "same total", "kn": "ಅದೇ ಒಟ್ಟು ಮೊತ್ತ", "hi": "समान कुल राशि"},
+    "LINE_ITEMS_OVERLAP": {"en": "same items", "kn": "ಅದೇ ವಸ್ತುಗಳು", "hi": "समान सामान"},
+    "INVOICE_NUMBER_RELATED": {"en": "similar invoice number", "kn": "ಹೋಲುವ ಇನ್‌ವಾಯ್ಸ್ ಸಂಖ್ಯೆ",
                                "hi": "मिलता-जुलता इनवॉइस नंबर"},
-    "DATES_WITHIN_14_DAYS": {"en": "dates within 14 days", "ta": "14 நாட்களுக்குள் தேதிகள்",
+    "DATES_WITHIN_14_DAYS": {"en": "dates within 14 days", "kn": "14 ದಿನಗಳೊಳಗಿನ ದಿನಾಂಕಗಳು",
                              "hi": "14 दिनों के भीतर की तारीखें"},
 }
-TEST_PROVIDER_NAME = {"en": "the test provider", "ta": "சோதனை வழங்குநர்", "hi": "टेस्ट प्रोवाइडर"}
+TEST_PROVIDER_NAME = {"en": "the test provider", "kn": "ಪರೀಕ್ಷಾ ಪೂರೈಕೆದಾರ", "hi": "टेस्ट प्रोवाइडर"}
 
 
 def _lang(lang: str | None) -> str:
-    return lang if lang in ("en", "ta", "hi") else "en"
+    return lang if lang in ("en", "kn", "hi") else "en"
+
+
+VENDOR_CALL = {
+    "REQUESTED": {
+        "en": "Calling the vendor on the number we have on file.",
+        "kn": "ದಾಖಲೆಯಲ್ಲಿರುವ ಸಂಖ್ಯೆಗೆ ಮಾರಾಟಗಾರರಿಗೆ ಕರೆ ಮಾಡಲಾಗುತ್ತಿದೆ.",
+        "hi": "रिकॉर्ड में दर्ज नंबर पर विक्रेता को कॉल किया जा रहा है।"},
+    "CONFIRMED_CHANGE": {
+        "en": "Vendor says the new account is theirs. Still blocked: verify it with the bank and update the saved account before paying.",
+        "kn": "ಹೊಸ ಖಾತೆ ತಮ್ಮದೇ ಎಂದು ಮಾರಾಟಗಾರರು ಹೇಳುತ್ತಾರೆ. ಇನ್ನೂ ತಡೆಹಿಡಿಯಲಾಗಿದೆ: ಪಾವತಿಸುವ ಮೊದಲು ಬ್ಯಾಂಕ್‌ನಲ್ಲಿ ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಉಳಿಸಿದ ಖಾತೆಯನ್ನು ನವೀಕರಿಸಿ.",
+        "hi": "विक्रेता कहता है कि नया खाता उसका है। अभी भी रोका गया: भुगतान से पहले बैंक से सत्यापित करें और सहेजा गया खाता अपडेट करें।"},
+    "DENIED_CHANGE": {
+        "en": "Vendor says this account is NOT theirs. Likely fraud: do not pay this invoice.",
+        "kn": "ಈ ಖಾತೆ ತಮ್ಮದಲ್ಲ ಎಂದು ಮಾರಾಟಗಾರರು ಹೇಳುತ್ತಾರೆ. ವಂಚನೆ ಇರಬಹುದು: ಈ ಇನ್‌ವಾಯ್ಸ್‌ಗೆ ಪಾವತಿಸಬೇಡಿ.",
+        "hi": "विक्रेता कहता है कि यह खाता उसका नहीं है। धोखाधड़ी हो सकती है: इस इनवॉइस का भुगतान न करें।"},
+    "NO_ANSWER": {
+        "en": "Vendor did not answer. The invoice stays blocked.",
+        "kn": "ಮಾರಾಟಗಾರರು ಕರೆಗೆ ಉತ್ತರಿಸಲಿಲ್ಲ. ಇನ್‌ವಾಯ್ಸ್ ತಡೆಹಿಡಿಯಲಾಗಿದೆ.",
+        "hi": "विक्रेता ने जवाब नहीं दिया। इनवॉइस रोका हुआ है।"},
+    "UNCLEAR": {
+        "en": "The call gave no clear answer. The invoice stays blocked.",
+        "kn": "ಕರೆಯಿಂದ ಸ್ಪಷ್ಟ ಉತ್ತರ ಸಿಗಲಿಲ್ಲ. ಇನ್‌ವಾಯ್ಸ್ ತಡೆಹಿಡಿಯಲಾಗಿದೆ.",
+        "hi": "कॉल से स्पष्ट जवाब नहीं मिला। इनवॉइस रोका हुआ है।"},
+}
 
 
 def explain_finding(code: str, evidence: dict, matched_invoice_id: str | None, lang: str = "en") -> str:
@@ -178,7 +202,7 @@ def explain_invoice(conn: sqlite3.Connection, invoice_id: str, lang: str = "en")
     inv = db.row(conn, "SELECT i.*, v.display_name FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id"
                        " WHERE i.invoice_id=?", (invoice_id,))
     if inv is None:
-        return {"en": "Invoice not found.", "ta": "விலைப்பட்டியல் இல்லை.", "hi": "इनवॉइस नहीं मिला।"}[lang]
+        return {"en": "Invoice not found.", "kn": "ಇನ್‌ವಾಯ್ಸ್ ಕಂಡುಬಂದಿಲ್ಲ.", "hi": "इनवॉइस नहीं मिला।"}[lang]
     head = f"{invoice_id} · {inv['display_name'] or inv['vendor_name_raw'] or '—'} · " \
            f"{format_inr(inv['stated_total_paise'])}: {DECISION[inv['decision']][lang]}."
     lines = [head]
@@ -190,7 +214,7 @@ def explain_invoice(conn: sqlite3.Connection, invoice_id: str, lang: str = "en")
 
 SUMMARY_HEAD = {
     "en": "{n} invoices: {e} ready to pay, {r} need review, {b} blocked.",
-    "ta": "{n} விலைப்பட்டியல்கள்: {e} செலுத்தத் தயார், {r} மறுபரிசீலனை தேவை, {b} தடுக்கப்பட்டவை.",
+    "kn": "{n} ಇನ್‌ವಾಯ್ಸ್‌ಗಳು: {e} ಪಾವತಿಗೆ ಸಿದ್ಧ, {r} ಪರಿಶೀಲನೆ ಅಗತ್ಯ, {b} ತಡೆಹಿಡಿಯಲಾಗಿದೆ.",
     "hi": "{n} इनवॉइस: {e} भुगतान के लिए तैयार, {r} समीक्षा आवश्यक, {b} रोके गए।",
 }
 
@@ -230,14 +254,14 @@ def explain_batch(conn: sqlite3.Connection, batch_id: str, lang: str = "en") -> 
 def explain_attempt(attempt: dict | None, lang: str = "en") -> str:
     lang = _lang(lang)
     if attempt is None:
-        return {"en": "No payment has been made.", "ta": "பணம் எதுவும் செலுத்தப்படவில்லை.",
+        return {"en": "No payment has been made.", "kn": "ಯಾವುದೇ ಪಾವತಿ ಮಾಡಲಾಗಿಲ್ಲ.",
                 "hi": "कोई भुगतान नहीं हुआ।"}[lang]
     text = STATUS.get(attempt["status"], {}).get(lang, attempt["status"])
     if attempt["mode"] == "TEST_PROVIDER":
-        text = text.replace("Cashfree-க்கு", TEST_PROVIDER_NAME["ta"] + "க்கு").replace("Cashfree", TEST_PROVIDER_NAME[lang])
+        text = text.replace("Cashfree", TEST_PROVIDER_NAME[lang])
     text = f"{format_inr(attempt['amount_paise'])} · {attempt['transfer_id']}: {text}."
     if attempt["mode"] == "TEST_PROVIDER":
-        text += {"en": " (Test provider: no money moved.)", "ta": " (சோதனை வழங்குநர்: பணம் நகரவில்லை.)",
+        text += {"en": " (Test provider: no money moved.)", "kn": " (ಪರೀಕ್ಷಾ ಪೂರೈಕೆದಾರ: ಯಾವುದೇ ಹಣ ವರ್ಗಾವಣೆಯಾಗಿಲ್ಲ.)",
                  "hi": " (टेस्ट प्रोवाइडर: कोई पैसा नहीं गया।)"}[lang]
     return text
 
@@ -253,9 +277,9 @@ def explain_proposal(conn: sqlite3.Connection, proposal_id: str, lang: str = "en
     snap = json.loads(p["snapshot_json"])
     msg = {
         "READY_FOR_APPROVAL": {"en": "Proposal ready: approve it on the approval card.",
-                               "ta": "முன்மொழிவு தயார்: ஒப்புதல் அட்டையில் அங்கீகரிக்கவும்.",
+                               "kn": "ಪ್ರಸ್ತಾವನೆ ಸಿದ್ಧ: ಅನುಮೋದನೆ ಕಾರ್ಡ್‌ನಲ್ಲಿ ಅನುಮೋದಿಸಿ.",
                                "hi": "प्रस्ताव तैयार: अनुमोदन कार्ड पर स्वीकृत करें।"},
-        "AUTHORIZED": {"en": "Approved; press Execute to send it.", "ta": "அங்கீகரிக்கப்பட்டது; அனுப்ப Execute அழுத்தவும்.",
+        "AUTHORIZED": {"en": "Approved; press Execute to send it.", "kn": "ಅನುಮೋದಿಸಲಾಗಿದೆ; ಕಳುಹಿಸಲು Execute ಒತ್ತಿರಿ.",
                        "hi": "स्वीकृत; भेजने के लिए Execute दबाएँ।"},
     }.get(p["state"], {}).get(lang, p["state"])
     return f"{format_inr(snap['amount_paise'])} → ••{snap['beneficiary_account_last4']}: {msg}"

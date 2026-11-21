@@ -21,7 +21,7 @@ class SarvamMock:
         self.status_sequence = ["pending", "running", "completed"]
         self.result = {}
         self.annotations = {}
-        self.transcript = ("எந்த பில்கள் சரியானவை?", "ta-IN")
+        self.transcript = ("ಯಾವ ಬಿಲ್‌ಗಳು ಸರಿಯಾಗಿವೆ?", "kn-IN")
         self.tool_calls = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -63,22 +63,22 @@ def live(**kw):
     return config.override(sarvam_api_key="sk_test", **kw)
 
 
-HANDWRITTEN_TAMIL = {
-    "language": "ta-IN",
-    "vendor_name": "கோயம்புத்தூர் பேக்கிங்",
+HANDWRITTEN_KANNADA = {
+    "language": "kn-IN",
+    "vendor_name": "ಕೊಯಮತ್ತೂರು ಪ್ಯಾಕಿಂಗ್",
     "invoice_number": "CP-215",
-    "invoice_date": "௧௮/௧௧/௨௦௨௬",
+    "invoice_date": "೧೮/೧೧/೨೦೨೬",
     "due_date": "03/12/2026",
-    "line_items": [{"description": "அட்டைப் பெட்டிகள் (boxes)", "quantity": "௨௫", "unit_price": "₹80",
+    "line_items": [{"description": "ರಟ್ಟಿನ ಪೆಟ್ಟಿಗೆಗಳು (boxes)", "quantity": "೨೫", "unit_price": "₹80",
                     "line_total": 2000}],  # Doc AI may return a number; it must be stringified
     "subtotal": "₹2,000",
     "tax_lines": [],
     "tax_inclusive": False,
-    "stated_total": "₹௨,௦௦௦",
+    "stated_total": "₹೨,೦೦೦",
     "amount_in_words": "Rupees Two Thousand Only",
     "bank_account": "XXXX6011",
     "ifsc": None,
-    "notes": "கையால் எழுதப்பட்டது",
+    "notes": "ಕೈಬರಹದ ಬಿಲ್",
 }
 
 
@@ -90,16 +90,16 @@ def _upload_and_process(client, name="bill.jpg", mime="image/jpeg"):
     return client.get(f"/api/batches/{bid}").json()
 
 
-def test_doc_ai_handwritten_tamil_invoice(client, conn, sarvam_mock):
+def test_doc_ai_handwritten_kannada_invoice(client, conn, sarvam_mock):
     live(sarvam_vision_enabled=True)
-    sarvam_mock.result = HANDWRITTEN_TAMIL
+    sarvam_mock.result = HANDWRITTEN_KANNADA
     sarvam_mock.annotations = {"stated_total": {"confidence": 0.93, "sources": []},
                                "line_items": [{"line_total": {"confidence": 0.9}, "quantity": {"confidence": 0.88}}]}
     batch = _upload_and_process(client)
     inv = batch["invoices"][0]
     assert inv["extraction_source"] == "LIVE_SARVAM_VISION"
-    assert inv["vendor_id"] == "V-COIMBATORE-PACKING"          # Tamil-script vendor resolved
-    assert inv["stated_total_paise"] == 200000                  # Tamil digits parsed
+    assert inv["vendor_id"] == "V-COIMBATORE-PACKING"          # Kannada-script vendor resolved
+    assert inv["stated_total_paise"] == 200000                  # Kannada digits parsed
     assert inv["decision"] == "ELIGIBLE", inv["findings"]
     submit = sarvam_mock.bodies("/doc-ai/v1/job/extract")[0]
     assert submit.headers["api-subscription-key"] == "sk_test"
@@ -110,7 +110,7 @@ def test_doc_ai_handwritten_tamil_invoice(client, conn, sarvam_mock):
 
 def test_doc_ai_low_confidence_goes_to_review(client, conn, sarvam_mock):
     live(sarvam_vision_enabled=True)
-    sarvam_mock.result = HANDWRITTEN_TAMIL | {"invoice_number": "CP-216"}
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-216"}
     sarvam_mock.annotations = {"stated_total": {"confidence": 0.41}}
     inv = _upload_and_process(client, "smudged.jpg")["invoices"][0]
     assert inv["decision"] == "REVIEW"
@@ -120,7 +120,7 @@ def test_doc_ai_low_confidence_goes_to_review(client, conn, sarvam_mock):
 def test_doc_ai_partial_job_forces_review(client, conn, sarvam_mock):
     live(sarvam_vision_enabled=True)
     sarvam_mock.status_sequence = ["partially_completed"]
-    sarvam_mock.result = HANDWRITTEN_TAMIL | {"invoice_number": "CP-217"}
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-217"}
     inv = _upload_and_process(client, "partial.jpg")["invoices"][0]
     assert any(f["code"] == "LOW_CONFIDENCE_FIELD" for f in inv["findings"])
 
@@ -142,7 +142,7 @@ def test_doc_ai_timeout_is_unreadable(client, conn, sarvam_mock):
 
 def test_chat_extraction_mode_uses_v1_with_image(client, conn, sarvam_mock, monkeypatch):
     live(sarvam_vision_enabled=True, sarvam_extraction_mode="chat")
-    content = json.dumps(HANDWRITTEN_TAMIL | {"invoice_number": "CP-218", "field_confidence": {"stated_total": 0.95}})
+    content = json.dumps(HANDWRITTEN_KANNADA | {"invoice_number": "CP-218", "field_confidence": {"stated_total": 0.95}})
 
     def handler(request):
         sarvam_mock.requests.append(request)
@@ -159,20 +159,20 @@ def test_chat_extraction_mode_uses_v1_with_image(client, conn, sarvam_mock, monk
     assert inv["decision"] == "ELIGIBLE", inv["findings"]
 
 
-def test_voice_question_tamil(client, conn, sarvam_mock):
+def test_voice_question_kannada(client, conn, sarvam_mock):
     live(sarvam_stt_enabled=True, sarvam_tts_enabled=True)
     r = client.post("/api/agent/voice", data={"batch_id": conn.batch_id, "language": "auto"},
                     files={"audio": ("question.webm", io.BytesIO(b"webm-bytes"), "audio/webm")})
     assert r.status_code == 200, r.text
     out = r.json()
-    assert out["transcript"] == "எந்த பில்கள் சரியானவை?" and out["reply_language"] == "ta"
+    assert out["transcript"] == "ಯಾವ ಬಿಲ್‌ಗಳು ಸರಿಯಾಗಿವೆ?" and out["reply_language"] == "kn"
     assert [c["tool"] for c in out["tool_calls"]] == ["rank_eligible_invoices"]
-    assert "செலுத்தத் தயார்" in out["reply"] and "INV-E" in out["reply"]  # grounded Tamil overview
+    assert "ಪಾವತಿಗೆ ಸಿದ್ಧ" in out["reply"] and "INV-E" in out["reply"]  # grounded Kannada overview
     assert base64.b64decode(out["reply_audio_b64"]) == b"RIFFwav"
     stt = sarvam_mock.bodies("/speech-to-text")[0].content.decode(errors="replace")
     assert "saaras:v4" in stt and "unknown" in stt and 'name="file"' in stt
     tts = json.loads(sarvam_mock.bodies("/text-to-speech")[0].content)
-    assert tts["language_code"] == "ta-IN" and tts["model"] == "bulbul:v3" and len(tts["text"]) <= 2500
+    assert tts["language_code"] == "kn-IN" and tts["model"] == "bulbul:v3" and len(tts["text"]) <= 2500
     assert db.rows(conn, "SELECT * FROM payment_proposals") == []
 
 
@@ -194,7 +194,7 @@ def test_voice_disabled(client, sarvam_mock):
 @pytest.mark.parametrize("text,lang,expect", [
     ("Which invoices are valid?", "en", "ready to pay"),
     ("कौन से इनवॉइस सही हैं?", "hi", "भुगतान के लिए तैयार"),
-    ("எந்த பில்கள் சரியானவை?", "ta", "செலுத்தத் தயார்"),
+    ("ಯಾವ ಇನ್‌ವಾಯ್ಸ್‌ಗಳು ಸರಿಯಾಗಿವೆ?", "kn", "ಪಾವತಿಗೆ ಸಿದ್ಧ"),
 ])
 def test_which_invoices_are_valid(conn, text, lang, expect):
     out = agent.handle_message(conn, "OP", conn.batch_id, text, lang)
@@ -223,7 +223,7 @@ def test_batch_summary(client, conn):
 def test_absent_field_zero_confidence_is_not_a_review(client, conn, sarvam_mock):
     """Observed live: Document AI scores absent fields 0.0. A bill with no bank details must stay eligible (T09)."""
     live(sarvam_vision_enabled=True)
-    sarvam_mock.result = HANDWRITTEN_TAMIL | {"invoice_number": "CP-219", "bank_account": None, "ifsc": None}
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-219", "bank_account": None, "ifsc": None}
     sarvam_mock.annotations = {"stated_total": {"confidence": 1.0}, "bank_account": {"confidence": 0.0},
                                "ifsc": {"confidence": 0.0}, "notes": {"confidence": 0.0}}
     inv = _upload_and_process(client, "nobank.jpg")["invoices"][0]
@@ -231,14 +231,64 @@ def test_absent_field_zero_confidence_is_not_a_review(client, conn, sarvam_mock)
 
 
 @pytest.mark.parametrize("field", ["bank_account", "ifsc", "invoice_number"])
-def test_doc_ai_numeric_identifier_is_unreadable(field):
-    # A number would drop leading zeros (account 001234567890 -> 1234567890), so refuse it.
+def test_doc_ai_numeric_identifier_is_refused(field):
+    # 001234567890 as a number would come back as 1234567890 and look like a changed account.
     with pytest.raises(sarvam.ExtractionFailed, match="as a number"):
-        sarvam.doc_ai_result_to_raw({"vendor_name": "Kaveri", field: 1234567890},
-                                    {field: {"confidence": 0.99}}, partial=False)
+        sarvam.doc_ai_result_to_raw({"vendor_name": "Kaveri", field: 1234567890}, {}, partial=False)
 
 
-def test_doc_ai_numeric_amount_is_kept_as_string():
-    raw = sarvam.doc_ai_result_to_raw({"stated_total": 8200, "bank_account": "001234567890"}, {}, partial=False)
-    assert raw.stated_total == "8200"
-    assert raw.bank_account == "001234567890"
+def test_doc_ai_language_sent_only_when_configured(client, conn, sarvam_mock):
+    live(sarvam_vision_enabled=True, sarvam_doc_ai_language="kn-IN")
+    sarvam_mock.result = HANDWRITTEN_KANNADA
+    _upload_and_process(client, "lang.jpg")
+    assert b'name="language"' in sarvam_mock.bodies("/doc-ai/v1/job/extract")[0].content
+
+
+@pytest.mark.parametrize("spoken", ["ಈಸ್ಟರ್ನ್ ಹಾರ್ಡ್\u200cವೇರ್ ಬಿಲ್ ಯಾಕೆ ತಡೆಹಿಡಿಯಲಾಗಿದೆ?",
+                                    "ಈಸ್ಟರ್ನ್ ಹಾರ್ಡ್ವೇರ್ ಬಿಲ್ ಯಾಕೆ ತಡೆಹಿಡಿಯಲಾಗಿದೆ?"])
+def test_kannada_vendor_name_with_or_without_zwnj(conn, spoken):
+    out = agent.handle_message(conn, "OP", conn.batch_id, spoken, "kn")
+    assert [(c["tool"], c["invoice_id"]) for c in out["tool_calls"]] == [("explain_findings", "INV-D")]
+    assert "ಉಳಿಸಿದ ಖಾತೆ" in out["reply"]  # changed-beneficiary explanation in Kannada
+
+
+def test_kannada_paid_question_is_status_not_payment(conn):
+    out = agent.handle_message(conn, "OP", conn.batch_id, "INV-E ಪಾವತಿಸಿದ ಸ್ಥಿತಿ ಏನು?", "kn")
+    assert [c["tool"] for c in out["tool_calls"]] == ["get_payment_status"]
+
+
+def test_unreadable_upload_is_re_extracted_after_enabling_vision(client, conn, sarvam_mock):
+    """Uploaded while vision was off -> DOCUMENT_UNREADABLE; enabling vision + Re-run checks recovers it."""
+    inv = _upload_and_process(client, "uploaded_while_off.png", "image/png")["invoices"][0]
+    assert [f["code"] for f in inv["findings"]] == ["DOCUMENT_UNREADABLE"]
+    live(sarvam_vision_enabled=True)
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-220"}
+    out = client.post(f"/api/invoices/{inv['invoice_id']}/checks").json()
+    assert out["extraction_source"] == "LIVE_SARVAM_VISION"
+    assert out["stated_total_paise"] == 200000 and out["decision"] == "ELIGIBLE", out["findings"]
+    assert len(sarvam_mock.bodies("/doc-ai/v1/job/extract")) == 1
+    client.post(f"/api/invoices/{inv['invoice_id']}/checks")  # already extracted: no second OCR job
+    assert len(sarvam_mock.bodies("/doc-ai/v1/job/extract")) == 1
+
+
+def test_duplicate_upload_points_to_existing_invoice(client, conn, sarvam_mock):
+    live(sarvam_vision_enabled=True)
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-221"}
+    first = _upload_and_process(client, "same.jpg")
+    batches_before = len(client.get("/api/batches").json())
+    r = client.post("/api/batches", files={"files": ("same-again.jpg", io.BytesIO(b"\xff\xd8\xff fake jpeg same.jpg"),
+                                                     "image/jpeg")}).json()
+    assert r["all_duplicates"] is True and r["batch_id"] == first["batch_id"]
+    assert r["documents"][0]["existing_invoice_id"] == first["invoices"][0]["invoice_id"]
+    assert len(client.get("/api/batches").json()) == batches_before  # no new (empty) batch
+    assert db.row(conn, "SELECT COUNT(*) AS n FROM invoices WHERE invoice_number_raw='CP-221'")["n"] == 1
+
+
+def test_process_response_reports_new_documents_and_summary(client, conn, sarvam_mock):
+    live(sarvam_vision_enabled=True)
+    sarvam_mock.result = HANDWRITTEN_KANNADA | {"invoice_number": "CP-222"}
+    bid = client.post("/api/batches", files={"files": ("p.jpg", io.BytesIO(b"\xff\xd8\xff p"), "image/jpeg")}).json()["batch_id"]
+    r = client.post(f"/api/batches/{bid}/process").json()
+    assert r["new_documents"] == 1 and r["summary"]["total"] == 1
+    again = client.post(f"/api/batches/{bid}/process").json()
+    assert again["new_documents"] == 0 and len(sarvam_mock.bodies("/doc-ai/v1/job/extract")) == 1

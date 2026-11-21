@@ -56,7 +56,9 @@ async function api(path, opts = {}) {
   const body = type.includes("application/json") ? await res.json() : await res.text();
   if (!res.ok) {
     if (res.status === 401 && state.token && path !== "/api/auth/session") signOut();
-    const msg = body && body.error ? `${body.error}: ${body.message}` : (body.detail || res.statusText);
+    const msg = body && body.error ? `${body.error}: ${body.message}`
+      : Array.isArray(body && body.detail) ? body.detail.map((d) => `${(d.loc || []).slice(-1)[0]}: ${d.msg.replace(/^Value error, /, "")}`).join("; ")
+      : (body.detail || res.statusText);
     throw new Error(msg);
   }
   return body;
@@ -76,8 +78,8 @@ async function loadHealth() {
   const caps = h.capabilities;
   state.caps = caps;
   $("#voiceHint").textContent = caps.sarvam_stt === "LIVE"
-    ? "Tap 🎤, ask in Tamil, Hindi or English, tap again to send (max 25 s)."
-    : "Voice input is off (enable Sarvam speech-to-text). Typed questions work.";
+    ? "Speak or type in Kannada, Hindi or English. Tap the mic again to send. Asking never pays."
+    : "Type in Kannada, Hindi or English (voice is off). Asking never pays.";
   const el = $("#capabilities");
   el.innerHTML = Object.entries(CAP_LABELS).map(([k, label]) => {
     const v = caps[k];
@@ -85,6 +87,10 @@ async function loadHealth() {
     const text = v === "LIVE" ? "live" : v.replace(/^OFF_?/, "").replace(/_/g, " ").toLowerCase() || "off";
     return `<span class="chip ${cls}" title="${esc(v)}">${esc(label)}: ${esc(text)}</span>`;
   }).join("") + (caps.test_mode ? `<span class="chip warn">TEST MODE</span>` : "");
+  const live = Object.keys(CAP_LABELS).filter((k) => caps[k] === "LIVE").length;
+  const summary = $("#capsSummary");
+  summary.textContent = `Cashfree sandbox · ${live}/${Object.keys(CAP_LABELS).length} live`;
+  summary.className = `chip ${live ? "ok" : "warn"}`;
 }
 
 function renderSession() {
@@ -146,6 +152,7 @@ $("#batchSelect").addEventListener("change", (e) => {
   state.batchId = e.target.value;
   state.selected = null;
   $("#detail").hidden = true;
+  $("#welcome").hidden = false;
   refreshBatch();
 });
 
@@ -156,21 +163,36 @@ async function refreshBatch() {
   if (!state.batchId) return;
   const b = await api(`/api/batches/${state.batchId}?${lq()}`);
   state.batch = b;
-  const counts = { ELIGIBLE: 0, REVIEW: 0, BLOCKED: 0 };
-  b.invoices.forEach((i) => counts[i.decision]++);
-  $("#batchSummary").innerHTML =
-    Object.entries(counts).map(([k, n]) => `<span class="chip ${DECISION_CLASS[k]}">${n} ${k.toLowerCase()}</span>`).join("") +
-    (b.unprocessed_documents.length ? `<span class="chip info">${b.unprocessed_documents.length} not yet checked</span>` : "");
-  $("#invoiceTable tbody").innerHTML = b.invoices.map((i) => `
-    <tr data-id="${esc(i.invoice_id)}" class="${i.invoice_id === state.selected ? "selected" : ""}">
-      <td class="mono">${esc(i.invoice_id)}</td>
-      <td>${esc(i.vendor || "—")}</td>
-      <td class="mono">${esc(i.invoice_number || "—")}</td>
-      <td class="num">${inr(i.stated_total_paise)}</td>
-      <td><span class="chip ${DECISION_CLASS[i.decision]}">${esc(i.decision_label)}</span></td>
-      <td>${i.payment_overlay ? `<span class="chip ${OVERLAY_CLASS[i.payment_overlay]}">${esc(i.payment_overlay.replace(/_/g, " ").toLowerCase())}</span>` : ""}</td>
-    </tr>`).join("") || `<tr><td colspan="6" class="muted">No invoices yet. Run checks to process uploaded documents.</td></tr>`;
-  document.querySelectorAll("#invoiceTable tbody tr[data-id]").forEach((tr) => tr.onclick = () => showInvoice(tr.dataset.id));
+  const groups = [["BLOCKED", "bad", "Blocked"], ["REVIEW", "warn", "Needs a check"], ["ELIGIBLE", "ok", "Safe to pay"]];
+  const sum = (list) => list.reduce((t, i) => t + (i.stated_total_paise || 0), 0);
+  const by = (k) => b.invoices.filter((i) => i.decision === k);
+  $("#batchSummary").innerHTML = groups.map(([k, cls, label]) => `
+    <div class="stat"><span class="label"><span class="dot ${cls}"></span>${esc(label.split(" ")[0])}</span>
+      <div class="n">${by(k).length}</div><div class="amt">${by(k).length ? inr(sum(by(k))) : "—"}</div></div>`).join("");
+  const bill = (i) => {
+    const open = i.findings.find((f) => f.status === "OPEN");
+    const why = i.payment_overlay ? i.payment_overlay.replace(/_/g, " ").toLowerCase()
+      : open ? open.explanation : `${i.invoice_number || ""}${i.due_date ? ` · due ${i.due_date}` : ""}`;
+    const ini = (i.vendor || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+    return `<button class="bill ${i.invoice_id === state.selected ? "selected" : ""}" data-id="${esc(i.invoice_id)}">
+      <span class="ini" aria-hidden="true">${esc(ini)}</span>
+      <span class="name">${esc(i.vendor || "Unknown vendor")}</span><span class="amt">${inr(i.stated_total_paise)}</span>
+      <span class="why">${esc(why)}</span></button>`;
+  };
+  $("#billList").innerHTML = groups.filter(([k]) => by(k).length).map(([k, cls, label]) => `
+    <div class="group-head"><span class="dot ${cls}"></span><span class="label">${esc(label)}</span><span class="amt">${inr(sum(by(k)))}</span></div>
+    <div class="bill-list">${by(k).map(bill).join("")}</div>`).join("")
+    + (b.invoices.length ? `<div class="total-row"><span class="label">All bills</span><span class="v">${inr(sum(b.invoices))}</span></div>`
+      : `<p class="muted" style="font-weight:600;margin-top:18px">No bills yet. Add this Friday's bills or load the sample.</p>`)
+    + (b.unprocessed_documents.length ? `<p class="small muted">${b.unprocessed_documents.length} not yet checked. Press Run checks.</p>` : "");
+  document.querySelectorAll("#billList .bill").forEach((el) => el.onclick = () => showInvoice(el.dataset.id));
+  const hasBills = b.invoices.length > 0;
+  $("#welcome").classList.toggle("has-bills", hasBills);
+  $("#introText").hidden = hasBills;
+  $("#sixHead").hidden = !hasBills;
+  if (!hasBills) $("#today").innerHTML = "";
+  $("#fridayTile").textContent = `${b.invoices.length} bills`;
+  $("#cashTile").textContent = inr(b.cash_budget_paise);
   $("#budget").value = Math.round(b.cash_budget_paise / 100);
   loadPlan();
   loadActivity();
@@ -184,34 +206,63 @@ $("#loadFixtures").addEventListener("click", async () => {
   } catch (err) { toast(err.message); }
 });
 
+// Run a long action with visible progress on the button that started it.
+async function busy(btn, label, fn) {
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  try { return await fn(); }
+  finally { btn.textContent = original; renderSession(); }
+}
+
+function summaryText(s) {
+  const d = s.by_decision;
+  return `${d.ELIGIBLE} eligible · ${d.REVIEW} need review · ${d.BLOCKED} blocked`;
+}
+
+async function runChecks(batchId) {
+  const r = await busy($("#processBatch"), "Reading invoices…", () =>
+    api(`/api/batches/${batchId}/process`, { method: "POST" }));
+  await loadBatches(batchId);
+  const what = r.new_documents ? `Read ${r.new_documents} new document(s).` : "No new documents; re-checked all invoices.";
+  toast(`${what} ${summaryText(r.summary)}`);
+  if (r.invoices.length === 1) showInvoice(r.invoices[0].invoice_id);
+  return r;
+}
+
 $("#upload").addEventListener("change", async (e) => {
   const files = [...e.target.files];
+  e.target.value = "";
   if (!files.length) return;
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
   try {
     const r = await api("/api/batches", { method: "POST", body: fd });
-    const dups = r.documents.filter((d) => d.duplicate_upload).length;
+    const dups = r.documents.filter((d) => d.duplicate_upload);
+    if (r.all_duplicates) {
+      await loadBatches(r.batch_id);
+      const inv = dups[0].existing_invoice_id;
+      toast(`Already uploaded${inv ? ` as ${inv}` : ""}. No second bill was created; showing the existing one.`);
+      if (inv) showInvoice(inv);
+      return;
+    }
+    if (dups.length) toast(`${dups.length} file(s) were already uploaded and were skipped.`);
     await loadBatches(r.batch_id);
-    toast(`${files.length} file(s) uploaded${dups ? `, ${dups} identical to an earlier upload` : ""}. Press Run checks.`);
+    await runChecks(r.batch_id);  // read and check straight away; no separate click needed
   } catch (err) { toast(err.message); }
-  e.target.value = "";
 });
 
 $("#processBatch").addEventListener("click", async () => {
   if (!state.batchId) return;
-  try {
-    await api(`/api/batches/${state.batchId}/process`, { method: "POST" });
-    await loadBatches(state.batchId);
-    toast("Checks complete");
-  } catch (err) { toast(err.message); }
+  try { await runChecks(state.batchId); } catch (err) { toast(err.message); }
 });
 
 // ---- invoice detail -----------------------------------------------------------
 
 async function showInvoice(id) {
   state.selected = id;
-  document.querySelectorAll("#invoiceTable tbody tr").forEach((tr) => tr.classList.toggle("selected", tr.dataset.id === id));
+  document.querySelectorAll("#billList .bill").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
+  $("#welcome").hidden = true;
   const d = await api(`/api/invoices/${id}/findings?${lq()}`);
   const el = $("#detail");
   el.hidden = false;
@@ -228,19 +279,62 @@ async function showInvoice(id) {
       <p>${esc(f.explanation)}</p>
       <details><summary>Evidence</summary><pre>${esc(JSON.stringify(f.evidence, null, 2))}</pre></details>
     </div>`).join("") : `<p class="muted">No findings.</p>`;
+  // The design's six checks, each fed by the finding codes that belong to it.
+  const CHECKS = [
+    ["Adds up", ["ARITHMETIC_MISMATCH", "ARITHMETIC_UNVERIFIABLE"], "Line items add up to the stated total."],
+    ["Words match", ["WORDS_FIGURES_MISMATCH", "WORDS_UNPARSABLE"], "Amount in words matches the figure."],
+    ["Not twice", ["CONFIRMED_DUPLICATE", "POSSIBLE_DUPLICATE", "ALREADY_PAID", "PAYMENT_IN_FLIGHT"], "Not already paid, not twice in this batch."],
+    ["Known vendor", ["VENDOR_UNRESOLVED"], "Vendor is in your approved list."],
+    ["Same bank account", ["CHANGED_BENEFICIARY", "NO_APPROVED_BENEFICIARY"], "Pays only your saved account."],
+    ["Name confirmed", ["VERIFICATION_MISSING", "VERIFICATION_FAILED", "ACCOUNT_NAME_MISMATCH"], "Account holder's name matches."],
+  ];
+  const open = d.findings.filter((f) => f.status === "OPEN");
+  const unread = open.some((f) => f.code === "DOCUMENT_UNREADABLE");  // nothing was checked, so nothing "passed"
+  const checkCards = CHECKS.map(([title, codes, ok]) => {
+    const hits = open.filter((f) => codes.includes(f.code));
+    // Never show a seeded verification as a real Cashfree name match.
+    const seeded = title === "Name confirmed" && !hits.length && (state.caps || {}).cashfree_secure_id !== "LIVE";
+    if (seeded) ok = "Seeded demo record, not a live Cashfree check.";
+    const st = unread ? ["NOT RUN", "muted"] : hits.some((f) => f.severity === "BLOCK") ? ["HOLD", "bad"]
+      : hits.length ? ["CHECK", "warn"] : seeded ? ["SEEDED", "muted"] : ["PASS", "ok"];
+    return `<div class="check ${st[0] === "HOLD" ? "hold" : ""}"><div class="row"><span class="t">${esc(title)}</span>
+      <span class="chip ${st[1]}">${st[0]}</span></div><p>${esc(hits.length ? hits.map((f) => f.explanation).join(" ") : unread ? "Bill could not be read." : ok)}</p></div>`;
+  });
+  const passed = checkCards.filter((c) => c.includes(">PASS<")).length;
+  const verdictCls = DECISION_CLASS[d.decision];
+  const verdictHtml = `<div class="verdict ${verdictCls}"><div><div class="big">${esc(d.decision_label)}</div>
+    <p>${esc(d.explanation || "")}</p></div></div>`;
+  const checksHtml = `<div class="panel-head" style="margin-top:22px"><h2>Six checks</h2>
+    <span class="small muted" style="font-weight:600">${passed} passed · ${6 - passed} not passed</span></div>
+    <div class="checks">${checkCards.join("")}</div>`;
+  // Vendor call (Relay): only offered when the printed bank account differs from the saved one.
+  const vc = d.vendor_call;
+  const callHtml = d.findings.some((f) => f.code === "CHANGED_BENEFICIARY" && f.status !== "RESOLVED") ? `
+    <h3>Vendor call</h3>
+    <div class="finding">
+      <div class="row">
+        <span>${vc ? `<span class="chip ${vc.status === "DENIED_CHANGE" ? "bad" : "warn"}">${esc(vc.status)}</span> ${esc(vc.text)}`
+                   : `<span class="muted">Ask the vendor, on the number we have on file, whether this account is theirs.</span>`}</span>
+        <button class="secondary small" id="vendorCall" data-auth>${vc ? "Call again" : "Call vendor"}</button>
+      </div>
+      ${vc && vc.summary ? `<p class="small">${esc(vc.summary)}</p>` : ""}
+    </div>` : "";
   const lines = d.lines.map((l) => `<tr><td>${esc(l.description)}</td><td class="num">${l.quantity_milli === null ? "—" : l.quantity_milli / 1000}</td>
     <td class="num">${inr(l.unit_price_paise)}</td><td class="num">${inr(l.line_total_paise)}</td>
     <td class="num ${l.computed_total_paise !== null && l.computed_total_paise !== l.line_total_paise ? "bad" : ""}">${inr(l.computed_total_paise)}</td></tr>`).join("");
   el.innerHTML = `
-    <div class="panel-head">
-      <h2><span class="mono">${esc(d.invoice_id)}</span> · ${esc(d.vendor || "Unknown vendor")}</h2>
+    <div class="panel-head detail-head">
+      <h2>${esc(d.vendor || "Unknown vendor")} <span class="mono muted">${esc(d.invoice_id)}</span></h2>
       <div class="actions">
+        <button class="small" id="backHome">← Today</button>
         <span class="chip ${DECISION_CLASS[d.decision]}">${esc(d.decision_label)}</span>
         <a class="small" href="/api/invoices/${encodeURIComponent(d.invoice_id)}/source" target="_blank" rel="noopener">Original document</a>
         <button class="secondary" id="rerun" data-auth>Re-run checks</button>
         ${d.decision === "ELIGIBLE" ? `<button id="propose" data-auth>Prepare payment</button>` : ""}
+        ${d.findings.some((f) => f.code === "VENDOR_UNRESOLVED" && f.status === "OPEN") ? `<button id="approveVendorBtn" data-auth>Approve this vendor…</button>` : ""}
       </div>
     </div>
+    ${verdictHtml}
     <div class="grid2">
       <dl class="kv">
         <dt>Invoice no.</dt><dd class="mono">${esc(d.invoice_number || "—")}</dd>
@@ -257,7 +351,9 @@ async function showInvoice(id) {
         <dt>Payment</dt><dd>${d.attempt ? `<span class="chip ${OVERLAY_CLASS[d.payment_overlay] || "muted"}">${esc(d.attempt.status)}</span> <span class="mono small">${esc(d.attempt.transfer_id)}</span>` : "—"}</dd>
       </dl>
     </div>
+    ${checksHtml}
     <h3>Findings</h3>${findingsHtml}
+    ${callHtml}
     ${d.vendor_id ? `<div id="bankChanges"></div>` : ""}
     ${lines ? `<h3>Line items</h3><div class="table-wrap"><table><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Line total</th><th class="num">Recomputed</th></tr></thead><tbody>${lines}</tbody></table></div>` : ""}
     ${d.notes ? `<h3>Notes on document</h3><div class="note-data"><div class="small">${esc(d.notes_label)}</div>${esc(d.notes)}</div>` : ""}
@@ -272,10 +368,31 @@ async function showInvoice(id) {
       showInvoice(id);
     } catch (err) { toast(err.message); }
   });
-  $("#rerun").onclick = async () => {
-    try { await api(`/api/invoices/${id}/checks`, { method: "POST" }); await refreshBatch(); showInvoice(id); toast("Checks re-run"); }
+  $("#backHome").onclick = () => {
+    state.selected = null;
+    $("#detail").hidden = true;
+    $("#approval").hidden = true;
+    $("#welcome").hidden = false;
+    document.querySelectorAll("#billList .bill").forEach((el) => el.classList.remove("selected"));
+  };
+  const callBtn = $("#vendorCall");
+  if (callBtn) callBtn.onclick = async () => {
+    try { await api(`/api/invoices/${id}/vendor-call?${lq()}`, { method: "POST" }); toast("Calling vendor"); showInvoice(id); }
     catch (err) { toast(err.message); }
   };
+  // Poll until Relay posts the call result.
+  if (vc && vc.status === "REQUESTED") setTimeout(() => { if (state.selected === id) showInvoice(id); }, 5000);
+  $("#rerun").onclick = async (ev) => {
+    try {
+      const inv = await busy(ev.currentTarget, "Checking…", () => api(`/api/invoices/${id}/checks`, { method: "POST" }));
+      await refreshBatch();
+      await showInvoice(id);
+      const reasons = inv.findings.filter((f) => f.status === "OPEN").map((f) => f.code).join(", ");
+      toast(`${id}: ${inv.decision}${reasons ? ` (${reasons})` : ""}`);
+    } catch (err) { toast(err.message); }
+  };
+  const av = $("#approveVendorBtn");
+  if (av) av.onclick = () => openVendorDialog(d);
   const propose = $("#propose");
   if (propose) propose.onclick = async () => {
     try {
@@ -510,6 +627,67 @@ $("#micBtn").addEventListener("click", () => {
   if (voice.rec) voice.rec.stop(); else startRecording();
 });
 
+// ---- vendor approval ----------------------------------------------------------
+
+async function loadVendors() {
+  const list = await api("/api/vendors");
+  $("#vendorList").innerHTML = list.map((v) => `<li><span>${esc(v.display_name)}<br><span class="small muted">${esc(v.aliases.filter((a) => a !== v.display_name).join(" · "))}</span></span>
+    <span class="small">${v.beneficiary ? `<span class="mono">${esc(v.beneficiary.account)}</span> ${esc(v.beneficiary.ifsc)}` : "no account"}<br>
+    <span class="chip ${v.verification ? (v.verification.source === "LIVE_SECURE_ID_BAV" ? "ok" : "muted") : "warn"}">${v.verification ? esc(v.verification.source === "LIVE_SECURE_ID_BAV" ? "verified" : "seeded mock") : "not verified"}</span></span></li>`).join("");
+}
+
+function openVendorDialog(inv) {
+  const f = $("#vendorForm");
+  f.reset();
+  $("#vendorError").textContent = "";
+  const hint = $("#vendorFromInvoice");
+  if (inv) {
+    f.display_name.value = inv.vendor_name_raw || "";
+    f.account_holder_name.value = inv.vendor_name_raw || "";
+    f.source_invoice_id.value = inv.invoice_id;
+    const b = inv.bank_comparison;
+    hint.hidden = false;
+    hint.innerHTML = `From <span class="mono">${esc(inv.invoice_id)}</span>. The invoice prints account <span class="mono">${esc(b.printed_account || "none")}</span>
+      ${b.printed_ifsc ? `IFSC <span class="mono">${esc(b.printed_ifsc)}</span>` : ""}. Printed details are only a claim: confirm the account with the supplier
+      (e.g. by phone) and type it below. If it differs from the print, this invoice will be blocked as a changed account.`;
+  } else {
+    f.source_invoice_id.value = "";
+    hint.hidden = true;
+  }
+  $("#vendorDialog").showModal();
+}
+
+$("#addVendor").addEventListener("click", () => openVendorDialog(null));
+$("#vendorCancel").addEventListener("click", () => $("#vendorDialog").close());
+$("#vendorForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const body = {
+    display_name: f.display_name.value.trim(),
+    aliases: f.aliases.value.split(",").map((s) => s.trim()).filter(Boolean),
+    account_holder_name: f.account_holder_name.value.trim(),
+    bank_account_number: f.bank_account_number.value,
+    bank_account_number_confirm: f.bank_account_number_confirm.value,
+    ifsc: f.ifsc.value.trim().toUpperCase(),
+    payment_terms_days: f.payment_terms_days.value ? Number(f.payment_terms_days.value) : null,
+    source_invoice_id: f.source_invoice_id.value || null,
+  };
+  if (body.bank_account_number !== body.bank_account_number_confirm) {
+    $("#vendorError").textContent = "The two account numbers do not match.";
+    return;
+  }
+  try {
+    const r = await busy($("#vendorSubmit"), "Approving…", () => api("/api/vendors", { method: "POST", json: body }));
+    $("#vendorDialog").close();
+    await loadVendors();
+    await refreshBatch();
+    const re = r.rechecked_invoices.map((x) => `${x.invoice_id}: ${x.decision}`).join(", ");
+    toast(`Approved ${r.vendor.display_name} (${r.vendor.beneficiary.account}). ${r.verification === "LIVE_SECURE_ID_BAV" ? "Verified with Secure ID." : "Not verified yet."}${re ? " Re-checked " + re : ""}`);
+    if (body.source_invoice_id) showInvoice(body.source_invoice_id);
+    if (r.matches_invoice_print === false) toast("Warning: the account you typed differs from the one printed on the invoice; it will be blocked.");
+  } catch (err) { $("#vendorError").textContent = err.message; }
+});
+
 // ---- payment plan -------------------------------------------------------------
 
 $("#planForm").addEventListener("submit", (e) => { e.preventDefault(); loadPlan(); });
@@ -522,8 +700,37 @@ async function loadPlan() {
   $("#plan").innerHTML = `
     <h3>Pay now</h3><ul class="plan-list">${plan.selected.map((e) => item(e, `#${e.rank} · ${inr(e.amount_paise)}${e.overdue_days ? ` · ${e.overdue_days}d overdue` : ""}`)).join("") || `<li class="muted">Nothing fits</li>`}</ul>
     ${plan.skipped.length ? `<h3>Skipped</h3><ul class="plan-list">${plan.skipped.map((e) => item(e, `${inr(e.amount_paise)} · exceeds remaining ${inr(e.remaining_budget_paise)}`)).join("")}</ul>` : ""}
-    ${plan.excluded.length ? `<h3>Not eligible</h3><ul class="plan-list">${plan.excluded.map((e) => item(e, esc(e.reason))).join("")}</ul>` : ""}
+    ${plan.excluded.length ? `<details><summary>Not in the plan (${plan.excluded.length})</summary><ul class="plan-list">${plan.excluded.map((e) => item(e, esc(e.reason.replace(/_/g, " ").toLowerCase()))).join("")}</ul></details>` : ""}
     <p class="small muted">Remaining ${inr(plan.remaining_paise)}. ${esc(plan.disclaimer)}</p>`;
+  renderToday(plan);
+}
+
+// Home: what needs Raghu today, in order: pay (plan order), don't pay, check, wait, done.
+function renderToday(plan) {
+  const b = state.batch;
+  if (!b || !b.invoices.length) return;
+  const inv = Object.fromEntries(b.invoices.map((i) => [i.invoice_id, i]));
+  const reason = (i) => ((i.findings || []).find((f) => f.status === "OPEN") || {}).explanation || "";
+  const row = (cls, title, sub, amt, id, action) => `
+    <li class="todo"><span class="dot ${cls}"></span>
+      <span class="what"><b>${esc(title)}</b><span>${esc(sub)}</span></span>
+      <span class="amt">${inr(amt)}</span>
+      ${action ? `<button class="small ${cls === "ok" ? "primary" : ""}" data-open="${esc(id)}">${esc(action)}</button>` : "<span></span>"}</li>`;
+  const items = [
+    ...plan.selected.map((e) => row("ok", `Pay ${e.vendor}`, `#${e.rank} in this Friday's plan · due ${e.due_date || "—"}${e.overdue_days ? ` · ${e.overdue_days}d overdue` : ""}`, e.amount_paise, e.invoice_id, "Review & pay")),
+    ...b.invoices.filter((i) => i.decision === "BLOCKED").map((i) => row("bad", `Don't pay ${i.vendor || i.invoice_id}`, reason(i), i.stated_total_paise, i.invoice_id,
+      i.findings.some((f) => f.code === "CHANGED_BENEFICIARY" && f.status === "OPEN") ? "Call vendor" : "See why")),
+    ...b.invoices.filter((i) => i.decision === "REVIEW").map((i) => row("warn", `Check ${i.vendor || i.invoice_id}`, reason(i), i.stated_total_paise, i.invoice_id, "Check")),
+    ...plan.skipped.map((e) => row("muted", `Wait: ${e.vendor}`, "Not enough cash left this Friday", e.amount_paise, e.invoice_id, "Open")),
+    ...b.invoices.filter((i) => i.payment_overlay).map((i) => row("muted", `Sent: ${i.vendor}`, i.payment_overlay.replace(/_/g, " ").toLowerCase(), i.stated_total_paise, i.invoice_id, "Status")),
+  ];
+  const n = (k) => b.invoices.filter((i) => i.decision === k).length;
+  const payNow = plan.selected.reduce((t, e) => t + e.amount_paise, 0);
+  $("#today").innerHTML = `
+    <h2 class="hero">Today · ${b.invoices.length} bills</h2>
+    <p>${plan.selected.length} to pay now (${inr(payNow)}), ${n("REVIEW")} to check, ${n("BLOCKED")} blocked. Cash left after the plan: ${inr(plan.remaining_paise)}.</p>
+    <ol class="todo-list">${items.join("")}</ol>`;
+  document.querySelectorAll("#today [data-open]").forEach((btn) => btn.onclick = () => showInvoice(btn.dataset.open));
 }
 
 // ---- activity -------------------------------------------------------------------
@@ -568,3 +775,4 @@ $("#refreshAudit").addEventListener("click", loadActivity);
 renderSession();
 loadHealth().catch((e) => toast(e.message));
 loadBatches().catch((e) => toast(e.message));
+loadVendors().catch((e) => toast(e.message));

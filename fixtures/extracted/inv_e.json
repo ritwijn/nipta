@@ -1,26 +1,26 @@
 {
   "_fixture_invoice_id": "INV-E",
-  "language": "ta-IN",
-  "vendor_name": "கோயம்புத்தூர் பேக்கிங்",
+  "language": "kn-IN",
+  "vendor_name": "ಕೊಯಮತ್ತೂರು ಪ್ಯಾಕಿಂಗ್",
   "invoice_number": "CP-201",
   "invoice_date": "05/11/2026",
   "due_date": "20/11/2026",
   "line_items": [
     {
       "description": "Corrugated boxes",
-      "quantity": "40",
-      "unit_price": "₹80.00",
-      "line_total": "₹3,200.00"
+      "quantity": "೪೦",
+      "unit_price": "₹೮೦.೦೦",
+      "line_total": "₹೩,೨೦೦.೦೦"
     }
   ],
-  "subtotal": "₹3,200.00",
+  "subtotal": "₹೩,೨೦೦.೦೦",
   "tax_lines": [],
   "tax_inclusive": false,
-  "stated_total": "₹3,200.00",
+  "stated_total": "₹೩,೨೦೦.೦೦",
   "amount_in_words": "Rupees Three Thousand Two Hundred Only",
   "bank_account": "XXXX6011",
   "ifsc": null,
-  "notes": "நன்றி, மீண்டும் வருக.",
+  "notes": "ಧನ್ಯವಾದಗಳು, ಮತ್ತೆ ಬನ್ನಿ.",
   "field_confidence": {
     "stated_total": 0.97,
     "subtotal": 0.96,

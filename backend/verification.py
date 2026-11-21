@@ -44,7 +44,10 @@ def record_verification(conn: sqlite3.Connection, ben: dict, r: cashfree_securei
     db.audit(conn, actor, "BENEFICIARY_VERIFIED", ben["vendor_id"],
              {"source": "LIVE_SECURE_ID_BAV", "beneficiary_id": ben["beneficiary_id"],
               "beneficiary_version": ben["version"], "account": "••" + ben["account_last4"],
-              "account_status": r.account_status, "name_match_result": r.name_match_result})
+              "account_status": r.account_status, "account_status_code": r.account_status_code,
+              "name_match_result": r.name_match_result, "name_match_score": r.name_match_score,
+              "name_at_bank": r.name_at_bank, "bank_name": r.bank_name, "reference_id": r.reference_id,
+              "request_id": r.request_id})
 
 
 def verify_saved_account(conn: sqlite3.Connection, vendor_id: str, actor: str) -> None:

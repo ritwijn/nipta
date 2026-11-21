@@ -7,7 +7,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 _DIGIT_MAP = {}
-for _base in (0x0966, 0x0BE6):  # Devanagari ०-९, Tamil ௦-௯
+for _base in (0x0966, 0x0CE6, 0x0BE6):  # Devanagari ०-९, Kannada ೦-೯, Tamil ௦-௯
     for _i in range(10):
         _DIGIT_MAP[_base + _i] = str(_i)
 
@@ -16,11 +16,11 @@ def to_ascii_digits(s: str) -> str:
     return s.translate(_DIGIT_MAP)
 
 
-_CURRENCY = re.compile(r"(₹|rs\.?|inr|रु\.?|रुपये|रुपए|ரூ\.?)", re.IGNORECASE)
+_CURRENCY = re.compile(r"(₹|rs\.?|inr|रु\.?|रुपये|रुपए|ರೂ\.?|ರೂಪಾಯಿ|ரூ\.?)", re.IGNORECASE)
 _SCALES = {
-    "lakh": 100_000, "lakhs": 100_000, "lac": 100_000, "lacs": 100_000, "लाख": 100_000, "லட்சம்": 100_000,
+    "lakh": 100_000, "lakhs": 100_000, "lac": 100_000, "lacs": 100_000, "लाख": 100_000, "ಲಕ್ಷ": 100_000, "லட்சம்": 100_000,
     "crore": 10_000_000, "crores": 10_000_000, "cr": 10_000_000, "करोड़": 10_000_000, "करोड": 10_000_000,
-    "கோடி": 10_000_000,
+    "ಕೋಟಿ": 10_000_000, "கோடி": 10_000_000, "ಸಾವಿರ": 1_000,
     "thousand": 1_000, "k": 1_000, "हज़ार": 1_000, "हजार": 1_000,
 }
 _GROUPED = re.compile(r"^\d{1,3}(,\d{2})*,\d{3}$|^\d{1,3}(,\d{3})+$|^\d+$")
@@ -114,10 +114,18 @@ def normalize_invoice_number(s: str | None) -> str | None:
     return t or None
 
 
+_ZERO_WIDTH = dict.fromkeys(map(ord, "​‌‍﻿"))
+
+
+def strip_zero_width(s: str) -> str:
+    """Kannada/Devanagari text may or may not carry ZWJ/ZWNJ joiners; compare without them."""
+    return s.translate(_ZERO_WIDTH)
+
+
 def normalize_vendor_name(s: str | None) -> str | None:
     if s is None:
         return None
-    t = unicodedata.normalize("NFC", str(s)).casefold()
+    t = strip_zero_width(unicodedata.normalize("NFC", str(s))).casefold()
     t = "".join(ch if (ch.isalnum() or unicodedata.category(ch).startswith("M") or ch.isspace()) else " " for ch in t)
     t = re.sub(r"\s+", " ", t).strip()
     return t or None

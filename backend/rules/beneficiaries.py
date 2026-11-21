@@ -11,7 +11,7 @@ import sqlite3
 from ..schemas import Finding
 from . import normalize as N
 
-_SUFFIXES = {"pvt", "ltd", "private", "limited", "llp", "co", "company", "inc", "प्रा", "लि", "பிரைவேட்", "லிமிடெட்"}
+_SUFFIXES = {"pvt", "ltd", "private", "limited", "llp", "co", "company", "inc", "प्रा", "लि", "ಪ್ರೈವೇಟ್", "ಲಿಮಿಟೆಡ್", "பிரைவேட்", "லிமிடெட்"}
 
 
 def _vendor_key(name: str | None) -> str | None:

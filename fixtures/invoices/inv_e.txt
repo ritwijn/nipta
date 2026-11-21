@@ -1,18 +1,18 @@
 SYNTHETIC DEMO INVOICE (printable fixture, not a real document)
 ================================================================
-Vendor:          கோயம்புத்தூர் பேக்கிங்
+Vendor:          ಕೊಯಮತ್ತೂರು ಪ್ಯಾಕಿಂಗ್
 Invoice No:      CP-201
 Invoice date:    05/11/2026
 Due date:        20/11/2026
 Bill to:         Raghu Hardware Wholesale, Coimbatore
 
 Items
-  Corrugated boxes                             40 x     ₹80.00 =    ₹3,200.00
+  Corrugated boxes                             ೪೦ x     ₹೮೦.೦೦ =    ₹೩,೨೦೦.೦೦
 
-Subtotal:        ₹3,200.00
-Total:           ₹3,200.00
+Subtotal:        ₹೩,೨೦೦.೦೦
+Total:           ₹೩,೨೦೦.೦೦
 Amount in words: Rupees Three Thousand Two Hundred Only
 
 Bank account:    XXXX6011
 IFSC:            (not printed)
-Notes:           நன்றி, மீண்டும் வருக.
+Notes:           ಧನ್ಯವಾದಗಳು, ಮತ್ತೆ ಬನ್ನಿ.
