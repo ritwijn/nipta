@@ -113,7 +113,7 @@ All vendors, documents, accounts and dates must be synthetic. Use a saved vendor
 - Sarvam TTS may read the card aloud. Authorization is still only the authenticated click bound to the snapshot hash; a spoken "yes" is never approval.
 
 ### Batch scorecard
-- After processing, the batch view shows counts of ELIGIBLE, REVIEW and BLOCKED invoices and a count per reason code (for example DUPLICATE, ARITHMETIC, WORDS_MISMATCH, BENEFICIARY_CHANGED, NAME_MISMATCH, LOW_CONFIDENCE).
+- After processing, the batch view shows counts of ELIGIBLE, REVIEW and BLOCKED invoices and a count per finding code as defined in architecture.md (for example CONFIRMED_DUPLICATE, POSSIBLE_DUPLICATE, ARITHMETIC_MISMATCH, WORDS_FIGURES_MISMATCH, CHANGED_BENEFICIARY, ACCOUNT_NAME_MISMATCH, LOW_CONFIDENCE_FIELD).
 - Each held invoice lists every rule that fired, with its source evidence, so judges can see both what was caught and which clean invoices passed.
 
 ## 5. Agent behavior and tool boundaries
