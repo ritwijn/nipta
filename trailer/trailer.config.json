@@ -1,0 +1,11 @@
+{
+  "name": "Nipta",
+  "url": "github.com/ritwijn/nipta",
+  "target": "http://host.docker.internal:8000/",
+  "viewport": { "width": 1280, "height": 720, "scale": 1.5 },
+  "fps": 30,
+  "edit": { "entry": "src/index.ts" },
+  "music": "node music.mjs",
+  "expectedSeconds": 90,
+  "maxSeconds": 150
+}
