@@ -1,106 +1,57 @@
-# NIPTA — PROBLEM STATEMENT
-Version: 2.3 (Nipta buildathon branding; product scope unchanged)
-Date: 20 November 2026
-Context: Cashfree × Sarvam AI Buildathon, Bengaluru (21 November 2026)
-
----
-
-## 1. One-Line Problem
-Small Indian food and retail businesses struggle to determine and settle the *correct* amount owed to repeat suppliers because invoices, advances, approved credits, and disputed claims are scattered across WhatsApp conversations, voice notes, paper slips, and informal ledgers. Payment providers can execute and report transfers, and accounting systems may already track advances and credit notes; neither automatically establishes commercial agreement from scattered informal messages. The missing workflow is turning these records into an explainable, accurately allocated obligation that a buyer can safely authorize.
-
-## 2. Target User and Initial Beachhead
-Primary user: owner-operators and managers of small restaurants, cloud kitchens, bakeries, and fresh-produce retailers in Bengaluru who work with 5–20 repeat suppliers and regularly handle deliveries, advances, shortages, and damaged-goods adjustments.
-
-These operators may negotiate in Kannada, Hindi, or code-mixed languages, but their core problem is not merely language accessibility: it is reconstructing reliable financial obligations from fragmented business records.
-
-Future segments, outside the buildathon MVP: kirana stores and regional wholesale distributors.
-
-## 3. Existing Workflow and Pain Points
-1. Fragmented evidence: A supplier sends a paper invoice or WhatsApp image. The merchant has paid an advance in a separate UPI transaction. A damaged-tomato credit was explicitly agreed by the supplier, while the buyer's ₹500 missing-coriander shortage claim remains unresolved.
-2. Manual reconciliation: The owner searches messages, notebooks, payment history, and staff recollection to determine which entries should affect the payable amount.
-3. Commercial risk: Paying the invoice without considering valid credits can cause overpayment; deducting an unapproved claim can cause disputes and disrupt future deliveries.
-4. Disconnected execution: Even after deciding on an amount, the merchant moves to a separate banking or payments tool and may have no linked evidence trail for the eventual transaction.
-5. Unsafe automation: A voice assistant that simply extracts amounts and invokes a payment API could mishear numbers, apply unsupported deductions, misidentify a beneficiary, or repeat a payment.
-
-## 4. Concrete Seeded Scenario
-Supplier: Ramesh Vegetables (Bengaluru)
-
-| Record | Description | Amount | Evidence / Status |
-|---|---|---:|---|
-| INV-104 | Fresh-produce invoice | ₹8,200 | Trusted supplier invoice linked to buyer |
-| ADV-019 | Prior UPI advance | −₹1,000 | Payment confirmed, linked to INV-104, not previously consumed |
-| CRD-007 | Damaged tomato credit | −₹350 | Explicit supplier agreement to ₹350; credit linked to INV-104 and unused |
-| CLM-012 | Missing coriander / short-delivery claim | −₹500 | Buyer-reported; supplier has not approved the claimed amount |
-
-Deterministically verified payable from eligible entries:
-₹8,200 − ₹1,000 − ₹350 = **₹6,850**.
-
-The buyer reports that ₹500 worth of coriander was missing; this does not establish that Ramesh agreed to a ₹500 credit. The unapproved ₹500 claim must **not** be deducted automatically. Nipta must display it separately, explain the discrepancy in the merchant's chosen language, and distinguish a calculated verified balance from a decision that the invoice is ready to settle.
-
-Decision paths:
-- **Ready for approval:** Required records and approvals are present, and no blocking dispute exists. The merchant can review and explicitly authorize ₹6,850.
-- **Review required:** A material unresolved claim or missing evidence exists. Nipta asks the merchant to review or defer. It may offer the verified ₹6,850 settlement only if the merchant's configured policy permits proceeding despite the open claim and the merchant explicitly chooses that option. Nipta never treats an unapproved deduction as approved.
-
-## 5. How Might We
-How might we help a Bengaluru merchant go from a short spoken instruction—“Clear Ramesh Vegetables' balance”—to a transparent, evidence-backed, deterministically calculated, human-authorized supplier payment, with trustworthy transaction status and an auditable ledger, without hallucinated arithmetic, unauthorized deductions, or duplicate money movement?
-
-## 6. Proposed Solution: Nipta
-Nipta is a vernacular-first, evidence-backed B2B supplier reconciliation and settlement agent using Sarvam AI and, subject to the relevant product being enabled, Cashfree's APIs.
-
-1. **Understand intent with Sarvam AI:** Transcribe/interpret a short Kannada, Hindi, or code-mixed request and speak a clear response. Speech recognition is an input method, not an authority for financial amounts.
-2. **Retrieve evidence:** Resolve the supplier from approved merchant records and fetch invoices, advances, credits, and open claims, each with source IDs and status.
-3. **Reconcile deterministically:** A backend calculation service requires trusted invoice evidence, a confirmed and unused advance, and explicit supplier agreement plus unused allocation for each credit. Buyer-internal approval or supplier acknowledgment of a complaint alone does not make a deduction eligible. The language model never invents amounts or performs authoritative arithmetic.
-4. **Explain unresolved claims:** Show each included and excluded adjustment, its evidence, and whether the case is ready for approval or requires review. Unapproved claims remain outside the payable calculation.
-5. **Require authorization:** Present the exact beneficiary, verified payable amount, open disputes, and source records for explicit merchant approval. Any change to amount or beneficiary invalidates prior approval.
-6. **Execute safely when supported:** Use a Cashfree **Payouts** flow only if the team has the requisite product access and sandbox capabilities. Use an idempotent request identity, backend-enforced authorization, and defensive retry handling. A Cashfree **Payments** collection flow is not interchangeable with an outbound supplier payout.
-7. **Confirm accurately:** Authenticate applicable webhook notifications, tolerate duplicate/out-of-order events, verify authoritative payment status as required, post to the ledger once, and speak only the status actually known. “Initiated,” “pending,” “failed,” and “completed” must not be conflated.
-
-Three distinct verifications must be represented separately:
-- **Ledger and commercial-agreement verification:** Is an advance confirmed and correctly linked to this invoice? Is a credit explicitly accepted by the supplier for the specific amount, evidenced, and not already applied?
-- **Beneficiary verification:** Do the saved beneficiary details satisfy the configured account-verification and merchant-approval checks? Availability of external verification depends on API access.
-- **Payment-status verification:** Has Cashfree returned a confirmed final state for this payment? An API acceptance or webhook receipt alone is not proof of completed settlement.
-
-## 7. Buildathon MVP (3.5-Hour Sprint)
-Demonstrate one seeded supplier, the invoice-and-credit breakdown, and a reviewable settlement proposal.
-
-Required demo sequence:
-1. Merchant asks in Kannada or Hindi to clear Ramesh's balance.
-2. Nipta retrieves INV-104, ADV-019, CRD-007, and CLM-012.
-3. Backend calculates ₹6,850 and explicitly flags the excluded ₹500 claim.
-4. Merchant tries to deduct the disputed ₹500; Nipta refuses to treat it as an approved credit, explains why, and presents appropriate review/proceed choices.
-5. Merchant explicitly approves the exact verified amount and beneficiary, if allowed by the selected dispute policy.
-6. If Cashfree Payouts sandbox access is enabled, Nipta initiates the approved payout and displays a verifiable transaction ID and its actual confirmed status; the ledger updates exactly once on the defined authoritative outcome.
-7. Sarvam speaks a precise status confirmation in the merchant's chosen language.
-
-If Payouts access is **not** available, do not claim that a Payment Link settles an outgoing supplier obligation. Preserve the full reconciliation, approval, and audit demonstration, and show the payout step as unavailable/simulated and clearly labeled. A separately designed Cashfree Payments collection demo is a possible alternate scope, not a substitute for an actual payout.
-
-Out of scope for the sprint: live ingestion of all WhatsApp history, arbitrary document OCR, production-grade bookkeeping integrations, autonomous dispute resolution, production money movement, and multi-supplier batch settlements.
-
-## 8. MVP Success Criteria
-Correctness and safety are gates; speed is a target, not a reason to bypass checks.
-
-- Reconciliation: 100% correct across seeded test cases, including the ₹6,850 calculation.
-- Unauthorized deductions: zero unsupported adjustments included; internal buyer approval or mere supplier acknowledgment cannot authorize a credit.
-- Allocation integrity: zero duplicate application of the same advance or credit across invoices or settlements.
-- Authorization: zero payouts initiated without explicit approval bound to the exact amount and beneficiary.
-- Duplicate protection: zero duplicate payout requests or ledger postings when the same approval, webhook, or retry is replayed.
-- Honesty of status: no “payment completed” confirmation without the authoritative final success state.
-- Experience target: spoken instruction to reviewable breakdown in under 15 seconds under demo conditions.
-- Stretch target: completed end-to-end sandbox settlement in under 60 seconds, only where provider processing times allow.
-
-## 9. Value Proposition
-Accounting software may support advances and credit notes, and payment rails move money once the merchant knows the right amount. Nipta closes the trust gap *before* that movement: it transforms fragmented, multilingual trade records into an explainable payable, distinguishes verified evidence from unresolved claims, and connects an explicit human decision to safely executed and auditable settlement.
-
-**Positioning:** Not “voice-controlled payments.” **Evidence-backed supplier settlement in the language merchants already use.**
-
-## 10. Assumptions and Validation Required
-- Cashfree Payouts enrollment, beneficiary-verification features, sandbox permissions, authentication details, and final-status/webhook behavior must be confirmed from current official documentation or with event engineers before integration. The Cashfree Payments documentation alone does not prove Payouts access.
-- The prevalence of these workflows, merchant willingness to pay, and the operational impact of reconciliation delays remain product hypotheses requiring customer interviews.
-- The seeded ledger is curated demonstration data, including a synthetic supplier-agreed ₹350 credit and a synthetic paid/unconsumed ₹1,000 advance; it is not proof that Nipta can authenticate arbitrary WhatsApp messages, infer legal agreement, or reconcile an external UPI payment on its own.
-
-## 11. Commercial Agreement and Allocation Guardrail (v2.3)
-Treat the following as distinct concepts: `RECORDED`, `EVIDENCE_ATTACHED`, `SUPPLIER_ACKNOWLEDGED` (complaint received), `SUPPLIER_APPROVED` (specific credit amount agreed), `DISPUTED`, and `APPLIED` (used against an invoice). An advance additionally needs verified payment, correct supplier/invoice allocation and unused balance. Only an agreed, evidence-linked and unused credit, or a verified, correctly linked and unused advance, can automatically reduce the payable. A claim may remain open after the buyer deliberately pays the verified balance under the configured dispute policy. The buildathon uses seeded evidence; production-grade capture and validation of counterparty agreement are future work.
-
-
-## 12. Execution Boundary (v2.3)
-A proposal is not a payment. Approval is an authenticated buyer UI decision over an immutable settlement snapshot, and `REQUEST_RESERVED` is an internal state after reserving a unique payout attempt but before provider acceptance. The model never approves, calculates, or transfers. Confirmed completed Cashfree Payouts alone permits an exactly-once settlement posting. Provider timeouts remain `UNKNOWN` and never cause an unqualified retry. In the five-table sprint schema, consumed advances/credits and immutable `SETTLEMENT`/`REVERSAL` journal events must remain separately identifiable; the design is not production double-entry accounting.
+ROBLEM STATEMENT 3
+Pay the right bill, to the right person
+Sixty invoices a week, three scripts, one banking portal and one tired accountant. Get the
+right vendors paid on time, and refuse to pay when something is off.
+THE SCENE (ILLUSTRATIVE)
+Raghu runs a hardware wholesale in Coimbatore. His vendors invoice in Tamil, Hindi and English,
+some printed, some handwritten on delivery slips with bank details scribbled underneath. Every
+Friday his accountant retypes the week's invoices into a banking portal. Last month one vendor's
+invoice arrived with a new account number. It looked fine. It was not the vendor's.
+THE CHALLENGE
+Build an agent that reads a pile of multilingual invoices and gets the right vendors
+paid the right amounts in the right order, and that knows when to stop and say no.
+WHAT MAKES IT HARD
+• Invoices do not agree with themselves. Totals, tax and line items drift, and amounts appear in
+figures and in words, sometimes in lakh notation and regional scripts.
+• The same invoice returns in disguise. A new number, a different date format, a slightly different
+spelling.
+• A familiar vendor with new bank details is the oldest trick there is.
+• Time carries legal weight. Registered micro and small suppliers must be paid within 15 days (no
+written agreement) or 45 days (with one) for the buyer to claim the expense that year. Cash is limited,
+so the question is also what to pay first.
+• Money that has left cannot be un-sent. Retries, failures and bank reversals must never become
+double payments.
+THE MOMENT WE WANT TO SEE
+A doctored invoice goes in. The agent declines to pay it, tells the owner why in his own language,
+while the clean invoices go out and come back confirmed.
+RED LINES
+• Money never moves to an account that has not been verified as belonging to the claimed vendor.
+• Approval cannot be spoofed, replayed or given by accident.
+• A retry must never become a second payment.
+• Every payment traces back to its invoice, its checks and its approver.
+QUESTIONS YOUR DESIGN MUST ANSWER
+? When should the agent pay on its own, and when must it stop and ask?
+? How should it treat a familiar vendor whose bank details have changed?
+? With limited cash and deadlines that carry tax consequences, what gets paid first?
+? What happens when a payout fails, or is reversed after it looked successful?
+Synthetic data and sandbox environments only. No real customer data. 6
+SARVAM x CASHFREE Hackathon problem statements
+GOOD TO KNOW
+• Cashfree's bank account verification returns the account status and a name match against the name held at the
+bank.
+• Payout webhooks report success, failure and reversal, so a payout that looked successful can still come back.
+• Secure ID's verification list includes GST and Udyam lookups. Confirm what the sandbox supports.
+• The 15 and 45 day limits apply to Udyam-registered micro and small suppliers, not medium ones. Confirm the
+current rules.
+BUILDING BLOCKS
+Sarvam Vision (invoice reading), translation and chat models, Saaras and Bulbul for voice approvals
+Cashfree Secure ID (bank account verification with name match, PAN, GST), Payouts, Webhooks
+WHAT EACH LEVEL LOOKS LIKE
+SOLID Reads a batch of invoices, verifies one vendor's account, and completes a sandbox payout.
+STRONG Catches duplicates, arithmetic that does not add up and changed bank details, with the owner
+approving in his own language.
+EXCEPTIONAL Decides the order of payment against cash and deadlines, and handles failure and reversal
+without ever paying twice.
+Demo-day curveball. We will slip in invoices with planted problems: a duplicate, a changed
+account, wrong arithmetic, a mismatched name. We will see how many you catch and how many
+good invoices you wrongly block.

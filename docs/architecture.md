@@ -1,618 +1,468 @@
-# NIPTA — SYSTEM ARCHITECTURE
+# Nipta Architecture
 
-**Architecture version:** 1.2 — Nipta buildathon branding; synchronized canonical implementation blueprint  
-**Canonical sources:** `problemstatement.txt` v2.3 (product problem) and `PRD.md` v2.7 (requirements and acceptance tests). This architecture is authoritative for implementation contracts. Consolidated from prior v1.1 and five-person ownership blueprint; 20 November 2026.  
-**Event:** Cashfree × Sarvam AI Buildathon, Bengaluru — 21 November 2026  
-**Scope:** Five-person team, 3.5-hour sprint, seeded Ramesh Vegetables scenario  
-**Status:** Implementation blueprint; **Cashfree and Sarvam API details remain unverified** in this environment
+**Version:** 2.1 (adds dispatch-start crash recovery, a concurrent-proposal race test, an agent activity stream, an agent call cap and an already-paid duplicate check)
+**Scope:** Solo buildathon implementation of PRD v4.0 ("Pay the right bill, to the right person")
+**Date:** 21 November 2026
+**Status:** Build reference. Cashfree and Sarvam contracts below were read from the official documentation on 21 November 2026. Whether each product is enabled for the event account is still an open check (section 11).
 
-> **North star:** From a Kannada utterance to a transparent ₹6,850 payable, refusal of an unsupported ₹500 deduction, explicit authenticated buyer authorization, and truthful supplier payout state. Never let an LLM authorize or calculate a financial transaction.
+## 1. Design principles
 
-## 1. Reconciled architecture decisions
+1. **The model reads and explains; deterministic code decides.** Sarvam extracts fields and writes language. Eligibility, arithmetic, duplicate scoring, beneficiary comparison, priority and payment state are plain Python functions over integer paise.
+2. **Money moves only through one backend function.** `execute_approved_payout(proposal_id)` is not a model tool. It runs only for an unexpired, authenticated approval whose snapshot hash still matches live data.
+3. **Uncertainty stops payment.** Missing fields, low confidence, unparsable words, ambiguous vendors and unknown provider outcomes resolve to `REVIEW` or `UNKNOWN`, never to a guess.
+4. **Every claim is labeled by source.** Fixture extraction, live Sarvam extraction, seeded mock verification, live Secure ID results, simulated payouts and real sandbox payouts are distinct values in the database and in the UI.
+5. **Database constraints carry the safety guarantees.** Unique indexes prevent a second attempt per proposal, a second settlement posting per attempt and a second reversal per posting, independent of application logic.
 
-This design preserves PRD v2.7's product scope, seeded facts, buyer/supplier definitions, demo sequence, and T01–T16 tests. The following table records the **resolved inconsistencies from earlier versions**, now synchronized into PRD v2.7. Remaining limits and external API uncertainties are explicitly identified.
-
-| Severity | Earlier document gap / ongoing implementation risk | Canonical implementation decision |
-|---|---|---|
-| Critical | Five-table schema lists `ledger_entries` only as invoices, advances, credits and claims, yet requires an immutable settlement entry and later reversal | Retain five tables for the sprint but extend `ledger_entries.kind` with `SETTLEMENT` and `REVERSAL`, store `payment_attempt_id`, and enforce one settlement posting and one compensating reversal per attempt using partial unique indexes. Longer term split accounting journals into a separate table. |
-| Critical | `ADV-019`/`CRD-007` are described as allocated to `INV-104`, while rules also say they are unused until settlement | Separate **invoice matching** from **settlement consumption**. Seed the entries as *linked to* `INV-104` but not yet consumed. Reserve under a settlement before payout; consume only on final success; release on definitive failure. Unknown stays reserved. |
-| Critical | Reserving an attempt locally does not guarantee exactly-once provider side effects across crash windows | Use a stable provider request/transfer identifier, persist an attempt before dispatch, recover via provider status lookup; never send another transfer under a new ID while the previous outcome is uncertain. Provider idempotency guarantees must be verified. |
-| High | `AUTHORIZED → INITIATED` skips the window before the HTTP request is accepted | Use `REQUEST_RESERVED` internally, then `INITIATED` only when semantics of the provider response justify it; on timeout use `UNKNOWN`. |
-| High | Webhook dedupe is necessary but insufficient when different events conflict or arrive out of order | Verify event authenticity on raw payload, store a dedupe key, require valid transitions, and reconcile contradictions through provider lookup. Final success is not downgraded by a late pending event. |
-| High | `SUPPLIER_APPROVED` may be confused with trusted proof | Seed exact agreement source/reference; show as **seeded agreement**, not a live WhatsApp verification. No automatic approval from model output. |
-| High | Cashfree endpoint names and Sarvam model IDs are not verified | Implement thin adapters using environment variables; do not hardcode or advertise unconfirmed API shapes/events. Confirm with event engineers. |
-| Medium | Five full implementations plus 16 tests are ambitious in 210 minutes | Ship Kannada text/pre-recorded audio → evidence → refusal → approval → enabled sandbox transaction/status first; TTS, Hindi, operator policy configuration are cuttable. |
-| High | The team-ownership proposal mixes `ISSUED` and `PAYMENT_CONFIRMED` with a narrower credit-status enum | Validate document/payment status per `kind`; keep supplier credit agreement separate from advance/payment confirmation. |
-| High | The other proposal puts dispute acknowledgment on `/execute`, despite a distinct `/approve` endpoint | Collect dispute acknowledgment on `/approve`; `/execute` requires prior server-recorded authorization and takes no approval flag. |
-| High | Member 1 and Member 3 both appear to own ledger mutation | Member 1 owns transport, signature and status normalization; Member 3 owns transactional state+posting mutation through a single ledger service. |
-
-### Explicit non-goals
-No live WhatsApp ingestion, arbitrary invoice OCR, full accounting/ERP, production funds, autonomous credit approval, self-service beneficiary registration, multi-invoice batching, or unrestricted voice authorization. A simulated outbound payout is **not** a successful Cashfree transfer and does **not** independently satisfy a real-money-movement requirement.
-
-## 2. Actors, trust boundaries and invariants
-
-- **Buyer / Nipta user:** Bengaluru restaurant, bakery, cloud kitchen, or produce retailer. Owns the obligation and approves payout.
-- **Supplier / payee:** Ramesh Vegetables (`SUP-001`), issuer of the produce invoice and recipient of funds.
-- **Cashfree merchant account:** API account with required enabled permissions. This may be distinct terminology from the buyer role; access must be confirmed.
-- **Sarvam AI:** Language input/output only. Model output is untrusted, even if formatted as JSON.
-- **Backend:** Financial source of truth for the demo, reconciler, approval checker, workflow orchestrator and Cashfree adapter owner.
-- **Cashfree:** Outbound transfer executor/status source **only if Payouts sandbox access is enabled**.
-
-**Safety invariants**
-
-1. Money amounts are computed only by integer-paise backend logic; never by model output.
-2. An unapproved or disputed supplier credit never reduces the payable amount.
-3. A paid advance or agreed credit may only reduce an invoice once, subject to remaining available amount.
-4. A short-delivery allegation is not supplier agreement; the ₹500 remains an open claim.
-5. The reviewable ₹6,850 is not an order to pay: policy and UI authorization are required.
-6. Voice input cannot authorize a payout, alter bank details, or switch dispute policy.
-7. One settlement may have at most one *active/uncertain* provider attempt; no automatic new transfer when status is unknown.
-8. HTTP acceptance and inbound webhook receipt do not automatically equal verified completed payment.
-9. A confirmed successful attempt produces exactly one immutable settlement ledger effect; reversal adds a distinct compensating effect.
-10. Server secrets stay server-side, beneficiary values are masked in the browser, and all stage statuses distinguish sandbox from simulation.
-
-## 3. Logical component architecture
+## 2. System context
 
 ```mermaid
 flowchart LR
-    U[Buyer: Kannada voice or text] --> FE[React / Vite UI]
-    FE -->|audio| STT[Sarvam STT adapter]
-    STT --> INT[Intent parser + schema validator]
-    FE -->|text| INT
-    INT -->|supplier alias + action only| API[Backend API / orchestrator]
-    FE -->|read, approve, execute| API
-    API --> REC[Deterministic reconciliation engine]
-    REC --> DB[(SQLite: 5 sprint tables)]
-    API --> AUTH[Policy + snapshot authorization]
-    AUTH --> DB
-    API --> PAY[Cashfree payout adapter]
-    PAY -->|sandbox payout, when enabled| CF[Cashfree Payouts]
-    CF -->|verified webhook / status lookup| PAY
-    PAY --> STATE[State machine + idempotent posting]
-    STATE --> DB
-    API --> TEXT[Grounded status template]
-    TEXT --> TTS[Sarvam TTS adapter]
-    TTS --> FE
+    OP[Owner / accountant<br/>browser] -->|HTTPS, session token| API[Nipta FastAPI service]
+    API --> DB[(SQLite<br/>WAL, BEGIN IMMEDIATE)]
+    API --> FS[(Upload store<br/>original files + SHA-256)]
+    API -->|vision extraction, chat, TTS| SAR[Sarvam AI API<br/>api.sarvam.ai]
+    API -->|POST /verification/bank-account/sync| SID[Cashfree Secure ID<br/>sandbox.cashfree.com]
+    API -->|POST /payout/transfers<br/>GET /payout/transfers| PAY[Cashfree Payouts V2<br/>sandbox.cashfree.com]
+    PAY -->|signed webhook| API
 ```
 
-**Trust boundaries:** Browser and model outputs are untrusted; only authenticated backend requests and validated server-owned data can change settlements. Provider webhooks are untrusted until verified with the provider's current authentication method. The Cashfree adapter never accepts a payable calculated in the frontend.
+There is no Relay and no MCP server on the critical path (PRD v4 section 6). Both remain possible later adapters: Relay for alert fan-out, the open-source `cashfree-mcp` server for developer tooling.
 
-### Five-person module boundaries
+## 3. Components
 
-The architecture is a **modular monolith**: one FastAPI process, one SQLite database, thin Sarvam and Cashfree adapters. Separate directory ownership prevents merge conflicts, but all modules communicate through frozen typed interfaces. **Member 5 owns shared app wiring, config, and contract integration.**
-
-| Owner | Owns | Must not own |
+| Component | Module | Responsibility |
 |---|---|---|
-| Member 1 — Cashfree | HTTP adapter, raw webhook verification, provider status lookup, normalized provider events | Direct ledger postings, settlement authorization, new transfer IDs on retries |
-| Member 2 — Sarvam | Audio input adapter, strict intent parsing, fixed-state-language templates and TTS | Determining payable, beneficiary, payment authority |
-| Member 3 — Financial core | SQLite/schema/seed, source eligibility, credit/advance reservations, immutable approvals, transactional state transitions and financial postings | Provider-specific HTTP/event parsing |
-| Member 4 — Frontend | Voice controls, evidence table, refusal display, explicit UI approval, status and audit panels | Calculating totals, altering approval flags, setting payment success |
-| Member 5 — Integration & QA | Shared routers/wiring, Pydantic contract freeze, env config, full-flow QA, pitch and cutoffs | Silent contract changes after freeze |
+| HTTP API | `backend/app.py` | Routes, request validation, session auth, static UI |
+| Configuration | `backend/config.py` | Feature flags, credentials, capability report; every provider off by default |
+| Storage | `backend/db.py` | Schema, transactions, audit writer |
+| Schemas | `backend/schemas.py` | Pydantic models for extraction output and API payloads |
+| Normalization | `backend/rules/normalize.py` | Native digits, lakh notation, dates, invoice numbers, vendor names, amount in words |
+| Arithmetic | `backend/rules/arithmetic.py` | Line, subtotal, tax and grand-total recomputation; words versus figures |
+| Duplicates | `backend/rules/duplicates.py` | Exact match, candidate scoring with evidence |
+| Beneficiaries | `backend/rules/beneficiaries.py` | Vendor resolution, saved-beneficiary comparison, verification sufficiency |
+| Decision | `backend/rules/decision.py` | Aggregates findings into `ELIGIBLE` / `REVIEW` / `BLOCKED` |
+| Priority | `backend/rules/priority.py` | Budget-constrained greedy ordering with explanations |
+| Sarvam adapter | `backend/integrations/sarvam.py` | Vision extraction, chat tool selection, TTS |
+| Payouts adapter | `backend/integrations/cashfree_payouts.py` | Standard transfer, status lookup, webhook signature check, 2FA signature |
+| Secure ID adapter | `backend/integrations/cashfree_secureid.py` | Bank account verification (sync) |
+| Approval | `backend/payments/approval.py` | Snapshot construction, canonical hash, approve, staleness |
+| Execution | `backend/payments/execution.py` | Attempt reservation, dispatch, simulation branch |
+| Status | `backend/payments/status.py` | Provider status mapping, guarded transitions, postings, webhook processing |
+| Agent | `backend/agent.py` | Tool allowlist, model or rule-based tool routing, grounded answers |
+| Explanations | `backend/explain.py` | Fixed English, Tamil and Hindi templates filled from stored state |
+| UI | `static/index.html`, `static/app.js`, `static/styles.css` | Single page, no build step |
 
-**Ownership boundary for success:** Member 1 emits a verified normalized event to `ledger.apply_verified_provider_event(...)` (Member 3). Member 3 atomically updates the payment attempt, consumes allocations and inserts a unique `SETTLEMENT` posting. Webhook handling must never independently set `posting_recorded_at` without that posting.
+**Deviation from PRD v4 section 11:** the frontend is a single no-build page served by FastAPI, not Vite + React + TypeScript. For one developer on venue Wi-Fi, a toolchain is an avoidable failure point. The API contract is unchanged, so a React port remains straightforward.
 
-### Recommended sprint stack
-
-- **Frontend:** Vite + React + TypeScript, one responsive screen. Browser recording or prepared `.wav` selector; typed fallback.
-- **Backend:** FastAPI + Pydantic + SQLite (`BEGIN IMMEDIATE` for short critical transactions); `httpx` for external calls. A Node/Express alternative is acceptable if the team already knows it.
-- **Data:** Five SQLite tables with uniqueness/check constraints and JSON fields for demo metadata. **Single server process** for sprint; don't claim horizontal scale.
-- **Sarvam:** STT, structured intent classification where supported, and optional grounded TTS behind adapters. Confirm actual model IDs, format, language codes and account access.
-- **Cashfree:** Payouts sandbox adapter behind a feature gate. Confirm current API version, authentication, beneficiary prerequisites, status endpoint and webhook authentication *before* implementing calls.
-- **Secrets/config:** Local `.env` on server, `.env.example` committed, real `.env` excluded from source control.
-
-## 4. End-to-end financial workflow
+## 4. Processing pipeline
 
 ```mermaid
 flowchart TD
-    A[Buyer speaks or types: clear Ramesh balance] --> B[Sarvam STT / constrained intent]
-    B --> C{Unambiguous supplier?}
-    C -- No --> C0[Clarify; no money action]
-    C -- Yes --> D[Load seeded evidence for SUP-001]
-    D --> E{Invoice, paid advance, agreed unused credit eligible?}
-    E -- No --> ER[REVIEW_REQUIRED; no executable proposal]
-    E -- Yes --> F[Deterministic calculation: 8200 - 1000 - 350 = 6850]
-    F --> G[Show CLM-012: missing coriander ₹500, disputed]
-    G --> H{Buyer requests extra ₹500 deduction?}
-    H -- Yes --> R[Refuse; no ledger mutation; explain supplier agreement absent]
-    H -- No --> P{Active dispute policy?}
-    R --> P
-    P -- STRICT_HOLD --> HOLD[Hold; no payout]
-    P -- ALLOW_VERIFIED_PROCEED --> S[Create frozen, version-bound settlement proposal]
-    S --> UI{Authenticated explicit UI approval?}
-    UI -- No --> END[Defer or cancel]
-    UI -- Yes --> V[Validate snapshot, policy, allocation and beneficiary]
-    V --> Q{Still valid?}
-    Q -- No --> S
-    Q -- Yes --> RES[Atomic allocation reservation + REQUEST_RESERVED attempt]
-    RES --> AV{Payouts sandbox enabled?}
-    AV -- No --> SIM[Clearly labeled simulation, no settled ledger posting]
-    AV -- Yes --> CALL[Submit once with stable provider request ID]
-    CALL --> ST[INITIATED / PENDING / UNKNOWN]
-    ST --> VERIFY[Verified webhook and/or provider status lookup]
-    VERIFY --> RESULT{Authoritative outcome?}
-    RESULT -- Pending / unknown --> ST
-    RESULT -- Failed --> FAIL[FAILED; release reservation after confirmed failure]
-    RESULT -- Success --> OK[COMPLETED; one settlement journal posting; consume allocations]
-    OK --> TTS[Grounded receipt, exact amount and provider reference]
-    FAIL --> TTS
-    OK --> REV{Later verified reversal?}
-    REV -- Yes --> COMP[Append compensating REVERSAL entry; do not erase history]
+    U[Upload PDF / JPEG / PNG or fixture batch] --> H[Store original, SHA-256, batch ID]
+    H --> X{Sarvam vision enabled?}
+    X -- Yes --> SV[Sarvam extraction<br/>raw strings + confidence]
+    X -- No --> FX[Pre-extracted fixture<br/>labeled PRE_EXTRACTED_FIXTURE]
+    SV --> V[Pydantic validation<br/>nulls preserved]
+    FX --> V
+    V --> N[Normalize: digits, lakh, dates,<br/>invoice number, vendor alias]
+    N --> R1[Arithmetic + words check]
+    N --> R2[Vendor resolution]
+    R2 --> R3[Duplicate scoring]
+    R2 --> R4[Beneficiary comparison]
+    R4 --> R5[Verification sufficiency]
+    R1 --> D[Decision aggregator]
+    R3 --> D
+    R5 --> D
+    D --> E[ELIGIBLE]
+    D --> RV[REVIEW]
+    D --> B[BLOCKED]
+    E --> P[Priority plan within budget]
 ```
 
-### Seeded baseline
+Checks are idempotent. Re-running them on an invoice replaces its open findings and recomputes the decision; findings an operator has already resolved are kept and carried forward.
 
-| ID | Type | Amount | Required eligibility | Demo treatment |
-|---|---|---:|---|---|
-| `INV-104` | Invoice | +₹8,200 | Buyer-accepted, supplier-matched invoice | Included |
-| `ADV-019` | Advance | −₹1,000 | Confirmed completed payment, linked to invoice, unconsumed | Included |
-| `CRD-007` | Credit | −₹350 | Explicit supplier agreement to **₹350**, linked, unconsumed | Included |
-| `CLM-012` | Claim | −₹500 | Buyer-only missing coriander assertion, no supplier approval | Excluded, open dispute |
-| | **Verified payable** | **₹6,850** | Subject to policy and buyer authorization | Proposed payout |
+### 4.1 Extraction contract
 
-`ADV-019` and `CRD-007` are *invoice-linked* at seed time but not *settlement-consumed*. On successful payout their reserved values become consumed. On verified failure they become available again; on `UNKNOWN` they remain reserved until reconciliation.
+The model is asked for **raw strings**, not computed numbers. Nipta converts strings to paise itself, so an LLM never supplies an arithmetic result.
 
-## 5. Reconciliation algorithm
-
-Use signed integer paise (`INVOICE` positive; advance/credit negative only if eligible). The core rule is:
-
-```python
-# Pseudocode; do not use floating point for currency.
-def reconcile(invoice, entries, policy):
-    assert invoice.supplier_id == 'SUP-001'
-    assert invoice.buyer_accepted and invoice.amount_paise >= 0
-    advances = [e for e in entries if valid_confirmed_advance(e, invoice)
-                and e.available_paise > 0]
-    credits = [e for e in entries if valid_supplier_agreed_credit(e, invoice)
-               and e.available_paise > 0]
-    excluded = [e for e in entries if e.kind == 'CLAIM' and not e.supplier_approved]
-    payable = (invoice.amount_paise
-               - sum(e.available_paise for e in advances)
-               - sum(e.available_paise for e in credits)
-               - invoice.prior_settlement_paise)
-    if payable < 0 or invoice.evidence_incomplete:
-        return review_required('Invalid or incomplete payable')
-    return {'amount_paise': payable, 'included': [invoice, *advances, *credits],
-            'excluded': excluded,
-            'can_proceed': policy == 'ALLOW_VERIFIED_PROCEED' or not excluded}
+```json
+{
+  "language": "ta-IN",
+  "vendor_name": "கோயம்புத்தூர் பேக்கிங்",
+  "invoice_number": "CP-201",
+  "invoice_date": "15/11/2026",
+  "line_items": [{"description": "Corrugated boxes", "quantity": "40", "unit_price": "₹80.00", "line_total": "₹3,200.00"}],
+  "subtotal": "₹3,200.00",
+  "tax_lines": [],
+  "stated_total": "₹3,200.00",
+  "amount_in_words": "Rupees Three Thousand Two Hundred Only",
+  "bank_account": "XXXX6011",
+  "ifsc": null,
+  "notes": "...",
+  "field_confidence": {"stated_total": 0.97}
+}
 ```
 
-For v2.7's single seeded invoice, each advance/credit is fully applied or not applied. Partial allocation needs an amount-specific allocation ledger, and is **out of sprint scope**. Track source reference, agreement version, invoice association, remaining availability, and rejection reason. The actual code must not filter records solely by the string `APPROVED`.
+A field that is absent stays `null`. A monetary field that is `null` or below `NIPTA_MIN_FIELD_CONFIDENCE` produces a `REVIEW` finding (`DOCUMENT_INCOMPLETE` or `LOW_CONFIDENCE_FIELD`). The `notes` field is stored and shown, but nothing in it is ever interpreted as an instruction (PRD T20).
 
-## 6. Persistence model: five tables with explicit journal effects
+## 5. Rules
 
-Keep the PRD's five-table sprint target, with the following **clarifications/additions**. This is a pragmatic local-demo schema, not a general-purpose double-entry ledger.
+### 5.1 Arithmetic and words (`ARITHMETIC_MISMATCH`, `WORDS_FIGURES_MISMATCH`)
 
-| Table | Columns that matter | Constraints |
+- For each line: `qty_milli × unit_price_paise / 1000` must equal `line_total_paise`, with the tolerance set by `NIPTA_ARITH_TOLERANCE_PAISE` (default 0).
+- The sum of line totals must equal the subtotal, and subtotal plus explicit tax lines must equal the stated total.
+- A confirmed mismatch is `BLOCKED`. The evidence records the stated value, the computed value and the line it came from.
+- If any input is missing, or the tax basis is ambiguous (for example a tax-inclusive marker with no tax line), the result is `REVIEW`, never `BLOCKED`.
+- Amount in words is parsed for English (crore, lakh, thousand, hundred, "and", "only", paise) and Hindi (1 to 99 lexicon plus सौ, हज़ार, लाख, करोड़). A disagreement with the figures is `BLOCKED`. A phrase that can't be parsed (including Tamil compound number words) is `REVIEW`, as rule 7.2 requires. Fixtures with Tamil bodies print the amount in words in English, which matches common Tamil Nadu GST practice.
+
+### 5.2 Duplicates (`CONFIRMED_DUPLICATE`, `POSSIBLE_DUPLICATE`)
+
+Exact match, which is `BLOCKED`: same resolved vendor and the same normalized invoice number (uppercase, letters and digits only), or the same document SHA-256. A repeated upload of the identical file is recorded as the same document and does not create a second payable.
+
+**Already paid:** whenever a match (exact or candidate) points at an invoice that has a `SETTLEMENT` posting or an attempt in `REQUEST_RESERVED`, `INITIATED`, `PENDING` or `UNKNOWN`, the finding also carries `ALREADY_PAID` (or `PAYMENT_IN_FLIGHT`). The evidence includes the matched invoice's transfer ID and status. An exact match to a paid invoice is `BLOCKED`. A candidate match to a paid invoice stays `REVIEW`, but the UI puts the payment evidence first so the reviewer sees the money has already gone.
+
+Candidate score against every earlier invoice from the same vendor:
+
+| Signal | Points |
+|---|---|
+| Same stated total | 3 |
+| Line-item token Jaccard ≥ 0.8 | 3 |
+| Invoice number related (one normalized number contains the other, or edit distance ≤ 2) | 2 |
+| Invoice dates within 14 days | 1 |
+
+A score of 6 or more is `POSSIBLE_DUPLICATE` and goes to `REVIEW`, with the matched invoice and the list of signals as evidence. The same amount alone (3 points) never qualifies, which covers PRD T06. The later-ingested invoice is the one flagged.
+
+### 5.3 Vendor and beneficiary (`VENDOR_UNRESOLVED`, `CHANGED_BENEFICIARY`, `NO_APPROVED_BENEFICIARY`)
+
+- **Vendor resolution:** the raw name is matched against seeded aliases in Latin, Tamil and Devanagari script after case and punctuation normalization. If there's no match, or more than one, the result is `REVIEW`. Script differences alone never cause a hold.
+- **Changed account:** printed bank details are a claim. The claimed account number (or its last four digits, when only a masked form is printed) and the claimed IFSC are compared with the active saved beneficiary version. Any difference is `BLOCKED`. Nothing in the invoice ever writes to the beneficiary table.
+- **Missing details:** if no bank details are printed and an approved saved beneficiary exists, no finding is raised (PRD T09).
+
+### 5.4 Verification sufficiency (`VERIFICATION_MISSING`, `VERIFICATION_FAILED`, `ACCOUNT_NAME_MISMATCH`)
+
+Verification attaches to the saved beneficiary version, never to invoice claims.
+
+| Latest evidence for active beneficiary version | Finding | Decision |
 |---|---|---|
-| `suppliers` | `id`, `merchant_id`, `display_name`, `aliases_json`, `beneficiary_id`, `beneficiary_masked`, `beneficiary_version`, `verification_status` | Supplier owned by buyer; saved beneficiary is never supplied by model output |
-| `ledger_entries` | `id`, `supplier_id`, `invoice_id`, `kind`, `amount_paise`, `commercial_state`, `evidence_ref`, `agreement_ref`, `agreement_version`, `linked_invoice_id`, `allocation_state`, `reserved_settlement_id`, `consumed_settlement_id`, `payment_attempt_id`, `reverses_entry_id`, `ledger_version` | `kind ∈ {INVOICE, ADVANCE, CREDIT, CLAIM, SETTLEMENT, REVERSAL}`; distinct reserve/consume; unique completed journal effect per `payment_attempt_id`; unique reversal per original entry |
-| `settlements` | `id`, `merchant_id`, `supplier_id`, `amount_paise`, `currency`, `snapshot_json`, `snapshot_hash`, `ledger_version`, `policy_version`, `beneficiary_version`, `state`, `approver_id`, `approved_at`, `expires_at` | Immutable snapshot; authenticated approval; current state/version checked transactionally |
-| `payment_attempts` | `id`, `settlement_id`, `provider_request_id`, `provider_ref`, `state`, `dispatch_started_at`, `verified_at`, `posting_recorded_at`, `last_provider_status` | `UNIQUE(settlement_id)` sprint constraint, `UNIQUE(provider_request_id)`; ambiguous result never spawns new ID |
-| `audit_events` | `id`, `dedupe_key`, `actor`, `action`, `object_id`, `created_at`, `metadata_json` | Provider event dedupe key unique where present; record decisions and transitions append-only |
+| None, or older than `NIPTA_VERIFICATION_MAX_AGE_DAYS` | `VERIFICATION_MISSING` | REVIEW |
+| `account_status = INVALID` | `VERIFICATION_FAILED` | BLOCKED |
+| `name_match_result` in `POOR_PARTIAL_MATCH`, `NO_MATCH` | `ACCOUNT_NAME_MISMATCH` | REVIEW |
+| `MODERATE_PARTIAL_MATCH` | `ACCOUNT_NAME_MISMATCH` (weak) | REVIEW |
+| `VALID` with `DIRECT_MATCH` or `GOOD_PARTIAL_MATCH` | none | eligible on this axis |
 
-### Required SQLite constraints (sprint model)
+Evidence carries `source = LIVE_SECURE_ID_BAV` or `SEEDED_MOCK`. Seeded evidence lets the rules and UI work offline, and the UI always labels it "Seeded mock, not a Secure ID result". When `NIPTA_REQUIRE_LIVE_VERIFICATION=true` (the default), a real Cashfree payout is refused unless the evidence is live. Simulated payouts are still allowed. A valid account and a good name match do not lift a `CHANGED_BENEFICIARY` block.
 
-```sql
-CREATE UNIQUE INDEX IF NOT EXISTS one_settlement_posting_per_attempt
-  ON ledger_entries(payment_attempt_id)
-  WHERE kind = 'SETTLEMENT' AND payment_attempt_id IS NOT NULL;
+### 5.5 Decision aggregation
 
-CREATE UNIQUE INDEX IF NOT EXISTS one_reversal_per_posting
-  ON ledger_entries(reverses_entry_id)
-  WHERE kind = 'REVERSAL' AND reverses_entry_id IS NOT NULL;
+`BLOCKED` if any open finding has severity BLOCK. Otherwise `REVIEW` if any open finding has severity REVIEW. Otherwise `ELIGIBLE`. A model can't create, delete or change the severity of a finding. An operator can resolve a REVIEW finding through an authenticated endpoint, which writes the reviewer and a reason to the audit log. BLOCK findings have no override in the MVP.
 
-CREATE UNIQUE INDEX IF NOT EXISTS one_attempt_per_settlement
-  ON payment_attempts(settlement_id);
+### 5.6 Priority (stretch)
 
-CREATE UNIQUE INDEX IF NOT EXISTS unique_provider_request
-  ON payment_attempts(provider_request_id);
-```
+Only `ELIGIBLE` invoices with no active or completed payment enter the plan. Sort keys, in order:
 
-`ledger_entries` also needs explicit checks for allowed `kind`, per-kind `commercial_state` validation (including invoice `ISSUED`/buyer-accepted and advance `PAYMENT_CONFIRMED`), and mandatory journal references. **Do not mix `commercial_state` with payment state**: a reversal has a journal reference, not supplier-credit approval. Represent the source state and payment state in their respective fields/tables.
+1. Seeded statutory-risk flag, applied only when `deadline_basis_verified = 1`.
+2. Overdue days, descending.
+3. Earliest confirmed due date.
+4. Invoice ID.
 
-### Important transactional order
+A greedy pass then fills the budget, and skipped invoices are reported with "exceeds remaining budget" and the remaining amount. If the deadline basis is unverified, the plan shows "Due-date basis unverified" and asserts no statutory deadline. The UI labels the result a decision aid, not an optimal allocation and not legal or tax advice.
 
-1. **Prepare**: read invoice, verify evidence and available allocations, freeze canonical snapshot, hash and ledger version. No funds move.
-2. **Approve**: authenticated UI submits settlement ID; server stores `approver_id`, time and expiry; approval is invalidated on material changes.
-3. **Reserve** (`BEGIN IMMEDIATE`): recheck approval/version; atomically reserve the relevant `ADV-019` and `CRD-007` records; create exactly one payment attempt and stable provider request ID; commit before network I/O.
-4. **Dispatch**: call provider only after reservation. Store provider response/reference. If process crashes between reservation and dispatch, recovery checks provider status by stable reference **before** any send/re-send. Whether safe same-key re-submission is possible depends on verified provider semantics.
-5. **Confirm success** (transaction): transition attempt to `COMPLETED`, create unique `SETTLEMENT` journal entry for ₹6,850, consume reserved source entries, bump ledger version, add audit event. All in one DB transaction.
-6. **Confirm failure** (transaction): mark `FAILED`, release reserved source entries if provider establishes no payout happened, audit. Do not create settlement posting.
-7. **Uncertain**: retain reservations; display `UNKNOWN/PENDING` and reconcile same provider attempt later. Never silently create a new transfer.
-8. **Reverse after completion**: append `REVERSAL` journal event linked to the original posting; audit and reopen/review obligations according to merchant policy. Do **not** blindly mark original advances/credits available without a separate reconciliation decision.
+With the fixtures and a ₹9,000 budget: E (₹3,200, earlier due date) is selected, A (₹8,200) is skipped because ₹5,800 remains, and B, C, D and F are excluded with their reasons.
 
-**Limit:** Five-table design assumes single payer, one invoice, one settlement, fully applied advance and credit. If partial credit reuse, concurrent multi-invoice allocations, or real books are needed, introduce an `allocations` table and proper journal lines. Avoid claiming the five-table model solves those production cases.
+## 6. Payment lifecycle
 
-## 7. Frozen API and module contracts — freeze by 12:45 PM
+### 6.1 Approval snapshot
 
-**These are Nipta's internal routes, not Cashfree endpoint claims.** All response money is integer paise. Member 5 freezes shared Pydantic schemas and frontend TypeScript types before parallel work proceeds. URLs are `POST /api/...`; the module ownership proposal's unprefixed examples are mapped to this canonical scheme.
-
-| Method | Route | Request | Response / guardrail | Owner |
-|---|---|---|---|---|
-| `POST` | `/api/intent/parse` | multipart: `audio_file` **or** `text_input`, `language` (`kn-IN`, `hi-IN`) | Transcript, input mode, strictly validated intent; *candidate* supplier ID resolved server-side | 2 |
-| `GET` | `/api/suppliers/{id}/reconciliation` | authenticated merchant context | ₹6,850, included/excluded evidence, version, eligibility, masked beneficiary | 3 |
-| `POST` | `/api/settlements` | `{supplier_id, invoice_id}` | new settlement ID, frozen server-computed snapshot/hash, expiry, status | 3 |
-| `POST` | `/api/settlements/{id}/approve` | `{snapshot_hash, acknowledge_open_dispute:true}` | server binds authenticated approver to exact current snapshot; no payout yet | 3 |
-| `POST` | `/api/settlements/{id}/execute` | empty body (or `snapshot_hash` check only, never a client amount or dispute approval) | existing or newly reserved attempt, execution mode and current state; no implicit authorization | 3 → 1 |
-| `GET` | `/api/settlements/{id}/status` | authenticated merchant | persistent authoritative state, check time, provider reference and `ledger_posted` | 3 (data) + 1 (reconcile) |
-| `POST` | `/api/webhooks/cashfree` | unmodified request body + provider headers | verify event, normalize, dedupe, dispatch **through Member 3 state service** | 1 → 3 |
-| `POST` | `/api/tts/speak` | `{settlement_id,language}` | TTS of server-defined status text, never client-supplied success text | 2 |
-
-### Shared intent schema (untrusted until validated)
+`POST /api/invoices/{id}/proposal` builds a snapshot from live rows:
 
 ```json
 {
-  "transcript": "ರಮೇಶ್ ವೆಜಿಟೇಬಲ್ಸ್ ಬಾಕಿ ಕ್ಲಿಯರ್ ಮಾಡಿ",
-  "language": "kn-IN",
-  "input_mode": "PREPARED_AUDIO",
-  "parsed_intent": {
-    "intent": "CHECK_BALANCE",
-    "supplier_alias": "Ramesh Vegetables",
-    "resolved_supplier_id": "SUP-001",
-    "requested_deduction_amount_paise": null
-  }
-}
-```
-
-Allowed intent enum: `CHECK_BALANCE`, `REQUEST_DEDUCTION`, `PREPARE_SETTLEMENT`, `CANCEL`, `UNKNOWN`. `resolved_supplier_id` is a server-side lookup result, **not model authority**. An `APPROVE_SETTLEMENT` utterance cannot authorize payment. Report prepared recordings as prepared; never pretend they were spontaneous.
-
-### Canonical reconciliation response
-
-```json
-{
-  "supplier": {
-    "id": "SUP-001",
-    "display_name": "Ramesh Vegetables",
-    "beneficiary_masked": "UPI: rameshveg@okaxis (BEN-001)",
-    "beneficiary_verification_status": "MERCHANT_CONFIRMED_RECORD"
-  },
-  "invoice_id": "INV-104",
-  "dispute_policy": "ALLOW_VERIFIED_PROCEED",
-  "ledger_version": 7,
+  "proposal_id": "prop_…",
+  "buyer_id": "BUYER-RAGHU-HW",
+  "invoice_id": "INV-E",
+  "invoice_version": 1,
+  "document_sha256": "…",
+  "vendor_id": "V-COIMBATORE-PACKING",
+  "beneficiary_id": "BEN-CP",
+  "beneficiary_version": 1,
+  "beneficiary_account_last4": "6011",
+  "amount_paise": 320000,
   "currency": "INR",
-  "verified_payable_paise": 685000,
-  "can_proceed": true,
-  "included_records": [
-    {"id":"INV-104","kind":"INVOICE","amount_paise":820000,"document_state":"BUYER_ACCEPTED","evidence_label":"PDF_BILL"},
-    {"id":"ADV-019","kind":"ADVANCE","amount_paise":-100000,"payment_state":"PAYMENT_CONFIRMED","allocation_state":"UNAPPLIED","evidence_label":"UPI_REF"},
-    {"id":"CRD-007","kind":"CREDIT","amount_paise":-35000,"credit_agreement_state":"SUPPLIER_APPROVED","allocation_state":"UNAPPLIED","evidence_label":"WHATSAPP_NOTE"}
-  ],
-  "excluded_claims": [
-    {"id":"CLM-012","kind":"CLAIM","amount_paise":-50000,"claim_state":"DISPUTED","reason":"Supplier agreement to ₹500 shortage credit missing"}
-  ]
+  "verification_ref": "ver_…",
+  "verification_source": "LIVE_SECURE_ID_BAV",
+  "risk_check_version": "nipta-rules-2026-11-21.v4",
+  "invoice_decision": "ELIGIBLE",
+  "open_findings_digest": "…",
+  "dispatch_mode": "CASHFREE_SANDBOX",
+  "expires_at": 1763712000
 }
 ```
 
-**Enum correction:** `ISSUED`, `BUYER_ACCEPTED`, `PAYMENT_CONFIRMED`, and `SUPPLIER_APPROVED` are different domain concepts, not interchangeable values of a credit-approval enum. For a sprint schema with one `commercial_state` column, use a record-kind-aware validation table rather than a global `CHECK` allowing only credit statuses. Better, expose typed `document_state`/`payment_state`/`credit_agreement_state` in the API, mapping seeded storage appropriately.
+The hash is SHA-256 of canonical JSON (sorted keys, no whitespace). Approval requires the operator session token plus the hash the UI displayed. On approve and again on execute, the server rebuilds the snapshot from current data. Any difference marks the proposal `STALE`, returns `APPROVAL_STALE`, and requires a fresh proposal (PRD T12). An expired approval returns `APPROVAL_EXPIRED`.
 
-### Authorization and execution contract
+### 6.2 Execution and exactly-once reservation
 
-```json
-// POST /api/settlements/SET-001/approve
-{"snapshot_hash":"<full_sha256_from_server>","acknowledge_open_dispute":true}
+```mermaid
+sequenceDiagram
+    participant UI
+    participant API as Nipta API
+    participant DB as SQLite
+    participant CF as Cashfree Payouts V2
+    UI->>API: POST /api/proposals/{id}/execute (session)
+    API->>DB: BEGIN IMMEDIATE
+    API->>DB: verify AUTHORIZED, unexpired, snapshot hash matches
+    API->>DB: INSERT payment_attempts (UNIQUE proposal_id, UNIQUE transfer_id) status=REQUEST_RESERVED
+    API->>DB: COMMIT
+    Note over API,DB: second click hits UNIQUE(proposal_id) and returns the existing attempt
+    API->>DB: UPDATE dispatch_started_at = now (committed before any network I/O)
+    API->>CF: POST /payout/transfers {transfer_id, amount, beneficiary}
+    alt 200 accepted
+        CF-->>API: status RECEIVED / PENDING / SUCCESS…
+        API->>DB: map status, record transition
+    else timeout, network error or 5xx
+        API->>DB: status=UNKNOWN (same transfer_id kept)
+    else 4xx validation / auth / not enabled
+        API->>DB: status=FAILED with provider error code (no transfer created)
+    end
+    API-->>UI: attempt state + transfer_id
 ```
 
-Success records `approver_id`, `approved_at`, and expiry only after merchant ownership, policy and snapshot validation. **Approval happens here, not at execute.**
+`transfer_id` is `NPT_` plus 24 hex characters derived from the proposal ID, within Cashfree's 40-character alphanumeric-and-underscore limit. It is fixed at reservation and never regenerated. Cashfree's documentation warns against starting another transfer after a 5xx response, so `UNKNOWN` is resolved only by `GET /payout/transfers?transfer_id=…`.
 
-```json
-// POST /api/settlements/SET-001/execute
-{}
-```
+**Dispatch start and crash recovery.** Reservation and dispatch are recorded separately. `REQUEST_RESERVED` with `dispatch_started_at` empty means the request was never sent. A non-empty `dispatch_started_at` with no recorded provider response means it may have been sent. On startup, and whenever `/status` sees an attempt in `REQUEST_RESERVED`, Nipta resolves it as follows:
 
-```json
-{
-  "settlement_id":"SET-001",
-  "payment_attempt_id":"ATT-901",
-  "execution_mode":"SANDBOX_PAYOUT",
-  "state":"REQUEST_RESERVED",
-  "provider_ref":null,
-  "amount_paise":685000,
-  "ledger_posted":false,
-  "status_message":"Payout attempt reserved; provider submission has not yet been confirmed."
-}
-```
+| Stored condition | Recovery |
+|---|---|
+| `dispatch_started_at` empty | Look up `transfer_id` at Cashfree. If the transfer is not found, the attempt stays `REQUEST_RESERVED` and the owner can press Execute again, which dispatches the **same** `transfer_id`. If it is found, apply its status. |
+| `dispatch_started_at` set, no response recorded | Move to `UNKNOWN` and look up `transfer_id`. Apply the status if found. If it is not found, stay `UNKNOWN` and show "Outcome not established; do not re-pay". A transfer can appear at Cashfree after a delay, so "not found" is never treated as failure. |
 
-The endpoint may return `INITIATED`, `PENDING`, or `UNKNOWN` when a verified provider response justifies it; it must not synthesize `INITIATED` from a local database insert.
+Nothing in the recovery path creates a new `transfer_id` or dispatches automatically. Re-dispatching the same `transfer_id` relies on Cashfree refusing a second transfer with an ID it has already accepted. The docs require `transfer_id` to be unique but do not state the error returned on reuse, so this is confirmed in the integration gate (section 11). Any duplicate-ID error is treated as a reason to reconcile, never as a failure.
 
-### Shared Python interfaces
+**Beneficiary in the request.** If the saved beneficiary has a `cashfree_beneficiary_id` (pre-registered in the sandbox), the request sends only that ID. Otherwise it sends `beneficiary_name` with `bank_account_number` and `bank_ifsc` taken from the snapshot's beneficiary version, which the Standard Transfer V2 schema allows.
 
-```python
-# Member 2 — language adapter
-transcribe(audio_bytes, language) -> str
-parse_intent(transcript, language) -> ValidatedIntent
-speak_status(settlement_id, language) -> bytes  # fetches backend-grounded status
+**Simulation.** When Payouts is not live, execution creates an attempt with `mode = SIMULATED` and `status = SIMULATED`. It never posts a settlement, never marks an invoice paid, and the UI shows "Simulated: no Cashfree transfer was made" (PRD fallback policy).
 
-# Member 3 — authoritative financial core
-reconcile(merchant_id, supplier_id) -> ReconciliationResult
-create_settlement(merchant_id, supplier_id, invoice_id) -> FrozenSnapshot
-approve_settlement(settlement_id, approver_id, snapshot_hash, acknowledge_dispute) -> Approval
-reserve_attempt(settlement_id) -> AuthorizedAttempt  # DB transaction
-apply_verified_provider_event(normalized_event) -> StoredState  # DB transaction + journal
-
-# Member 1 — provider-only adapter
-send_transfer(attempt_id, authorized_snapshot, provider_request_id) -> ProviderResult
-lookup_transfer(provider_request_id) -> ProviderResult
-verify_and_normalize_webhook(raw_body, headers) -> NormalizedProviderEvent
-```
-
-`send_transfer` receives a **persisted, frozen server-side snapshot** and stable `provider_request_id`; no free-form beneficiary/amount supplied by UI or LLM. Final Cashfree shapes, event names and idempotency behavior remain to be confirmed.
-
-## 8. Payment state machine and confirmation policy
-
-The PRD's public statuses stay recognizable. Add `REQUEST_RESERVED` as an **internal** state to model the crash window before external dispatch.
+### 6.3 Attempt state machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DRAFT
-    DRAFT --> READY_FOR_APPROVAL: valid evidence + policy
-    DRAFT --> REVIEW_REQUIRED: invalid evidence or strict hold
-    READY_FOR_APPROVAL --> AUTHORIZED: authenticated UI + current snapshot
-    AUTHORIZED --> REQUEST_RESERVED: atomically reserve allocations + attempt
-    REQUEST_RESERVED --> INITIATED: provider accepts attempt
-    REQUEST_RESERVED --> UNKNOWN: crash / timeout / ambiguous dispatch
-    INITIATED --> PENDING: provider reports in progress
-    INITIATED --> COMPLETED: authoritative final success
-    INITIATED --> FAILED: authoritative final failure
-    INITIATED --> UNKNOWN: contradictory or ambiguous status
-    PENDING --> COMPLETED: verified final success
-    PENDING --> FAILED: verified final failure
-    PENDING --> UNKNOWN: verification uncertainty
-    UNKNOWN --> PENDING: provider reconciliation
-    UNKNOWN --> COMPLETED: verified final success
-    UNKNOWN --> FAILED: verified final failure
-    COMPLETED --> REVERSED: later verified reversal
+    [*] --> REQUEST_RESERVED
+    REQUEST_RESERVED --> INITIATED: provider accepted
+    REQUEST_RESERVED --> UNKNOWN: dispatch outcome uncertain
+    REQUEST_RESERVED --> FAILED: definitive 4xx rejection
+    INITIATED --> PENDING
+    INITIATED --> COMPLETED
+    INITIATED --> FAILED
+    INITIATED --> UNKNOWN
+    PENDING --> COMPLETED
+    PENDING --> FAILED
+    PENDING --> UNKNOWN
+    UNKNOWN --> PENDING
+    UNKNOWN --> COMPLETED
+    UNKNOWN --> FAILED
+    COMPLETED --> REVERSED
 ```
 
-**Protocol principles:**
+Transitions are checked against this table. An event that would move backwards (for example a late `PENDING` after `COMPLETED`) is recorded as evidence and ignored (PRD T15).
 
-- Cashfree adapter maps confirmed vendor statuses into normalized local values. Do not invent actual Cashfree event names or assume HTTP 200 means paid.
-- Authenticate provider events using its current documented scheme and raw body; keep credentials server-side.
-- Dedupe by stable event identity when provided. If no event ID is available, use a canonical provider-event identity appropriate to that verified API contract, not blindly `timestamp` alone.
-- For out-of-order events, do not downgrade `COMPLETED` to `PENDING`; reconcile contradictory finals using provider status. Treat `REVERSED` as a separate verified follow-up event.
-- On uncertainty, query status of **the same stable attempt**; retrying a different transfer request is forbidden without resolution and explicit new authorization.
-- `SIMULATED` is a distinct provider-mode indicator; it must not be treated as `COMPLETED` or create a financial settlement posting.
+### 6.4 Provider status mapping (Payouts V2)
 
-## 9. Sequence diagrams
-
-### Happy path: signed-off ₹350 credit, buyer approves ₹6,850
-
-```mermaid
-sequenceDiagram
-    participant B as Buyer
-    participant UI as React UI
-    participant S as Sarvam
-    participant API as Nipta Backend
-    participant DB as SQLite
-    participant CF as Cashfree Sandbox
-    B->>UI: Speak balance request
-    UI->>S: Kannada audio
-    S-->>API: Validated intent candidate
-    API->>DB: Load invoice, advance, credit, dispute
-    DB-->>API: Seeded evidence + allocation availability
-    API-->>UI: ₹6,850 + excluded ₹500 claim
-    B->>UI: Request disputed ₹500 deduction
-    UI->>API: REQUEST_DEDUCTION
-    API-->>UI: Refuse; supplier consent absent
-    B->>UI: Review and click Approve ₹6,850
-    UI->>API: Approve frozen snapshot
-    API->>DB: Verify + store authenticated approval
-    UI->>API: Execute approved settlement
-    API->>DB: Atomic reserve + stable attempt ID
-    API->>CF: Transfer request (only if enabled)
-    CF-->>API: Accepted / pending reference
-    API-->>UI: INITIATED / PENDING (not paid yet)
-    CF-->>API: Verified final success via status/webhook
-    API->>DB: Atomic COMPLETED + one settlement posting
-    API-->>UI: Completed + exact provider reference
-    UI->>S: Server-grounded Kannada status template
-    S-->>B: Spoken verified result
-```
-
-### Duplicate click / timeout protection
-
-```mermaid
-sequenceDiagram
-    participant UI as Buyer UI
-    participant API as Nipta Backend
-    participant DB as SQLite
-    participant CF as Cashfree Sandbox
-    UI->>API: Execute SET-001
-    API->>DB: Insert one reserved attempt with unique settlement_id
-    API->>CF: Send stable provider_request_id
-    Note over API,CF: Network response may be lost
-    API->>DB: Mark UNKNOWN (retain reservation)
-    UI->>API: Duplicate click Execute SET-001
-    API->>DB: Read existing attempt
-    API-->>UI: Existing UNKNOWN attempt; no new ID
-    API->>CF: Lookup same provider_request_id status
-    CF-->>API: Actual provider status
-    API->>DB: Apply guarded transition and journal if verified
-```
-
-## 10. Security, identity and observability
-
-### Demo authentication and authorization
-
-Use a seeded demo buyer identity/session (`MER-001`) with server-enforced merchant ownership checks; **do not mistake a hardcoded demo session for production authentication**. Approval requires a specific UI click and records `approver_id`, timestamp, expiry, frozen snapshot hash, ledger and beneficiary versions. Use an anti-CSRF mechanism if cookie authentication is used. Any critical policy/beneficiary/evidence change invalidates outstanding approvals.
-
-### Data minimization and audit
-
-- Display beneficiary alias and masked account/VPA only. Do not expose full bank details or API credentials in UI or stage logs.
-- Log `merchant_id`, `supplier_id`, `settlement_id`, `payment_attempt_id`, provider request/ref, normalized transition, and response timestamps; redact tokens and account numbers.
-- Log the rejected `CLM-012` reason and source references, not inferred supplier consent.
-- Store actual webhook verification outcome and event ID (or documented equivalent); replay becomes a no-op.
-- Provide visible `SANDBOX`, `PENDING`, `SIMULATED` indicators. A pending result receives no “payment completed” narration.
-
-### Threat-to-control mapping
-
-| Threat | Control |
+| Cashfree `status` / `status_code` | Nipta attempt status |
 |---|---|
-| Model hallucinates ₹6,350 or invents approval | Model cannot write ledger; deterministic engine computes ₹6,850 from eligible sources |
-| Fake supplier alias causes wrong beneficiary | Exact merchant-owned supplier resolution; ambiguous aliases prompt clarification |
-| Unverified ₹500 claim deducted | Supplier approval + agreement-version + unused allocation checks |
-| Replayed approval / double click | Unique settlement attempt, stable provider ID and transactional reserve |
-| Webhook forgery or duplicate | Raw-body authentication, dedupe and guarded state transition |
-| Provider timeout causes double payout | `UNKNOWN` with reconciliation against same attempt; no new transfer ID |
-| Stale credit/beneficiary version | Recompute, invalidate approval, require fresh UI review |
-| Unverified payment success announcement | Spoken template generated only from confirmed persisted state |
+| `RECEIVED`, `QUEUED`, `APPROVAL_PENDING`, `VALIDATION_PENDING`, `PENDING` | PENDING |
+| `SUCCESS` + `SENT_TO_BENEFICIARY` | PENDING (in flight, not yet credited) |
+| `SUCCESS` + `COMPLETED` | COMPLETED |
+| `FAILED`, `REJECTED`, `MANUALLY_REJECTED` | FAILED |
+| `REVERSED` after COMPLETED | REVERSED |
+| `REVERSED` before COMPLETED | FAILED (no posting existed) |
+| anything else | UNKNOWN |
 
-## 11. Failure handling and recovery matrix
+Settlement is posted **only** on `SUCCESS` with `status_code = COMPLETED`. Cashfree's own `TRANSFER_SUCCESS` webhook example carries `SENT_TO_BENEFICIARY`, so the event name alone is never treated as proof of credit (PRD T21).
 
-| Failure | User-visible state | Recovery rule |
+### 6.5 Postings
+
+- **COMPLETED:** one transaction inserts a `SETTLEMENT` posting (`UNIQUE(attempt_id, kind)`) and the invoice shows as paid.
+- **REVERSED:** one transaction inserts a `REVERSAL` posting with a negative amount and `reversal_of` pointing at the settlement (unique). It adds a `PAYMENT_REVERSED` REVIEW finding to the invoice. The original settlement and transfer remain in history, and nothing re-pays automatically (PRD T17).
+- **FAILED:** no posting. The proposal's reservation is released, so a new proposal can be created after review (PRD T16).
+
+The invoice's payment overlay (`PAID`, `PAYMENT_PENDING`, `PAYMENT_FAILED`, `REVERSED_REVIEW`) is derived from attempts and postings. It is separate from the risk decision.
+
+### 6.6 Webhooks
+
+`POST /api/webhooks/cashfree`:
+
+1. Read the raw body bytes before any JSON parsing.
+2. Compute `base64(HMAC-SHA256(key = webhook secret, msg = x-webhook-timestamp + raw_body))` and compare in constant time with `x-webhook-signature`. A mismatch returns 401 and is audited.
+3. Build a dedupe key: SHA-256 of `type | transfer_id | status | status_code | event_time`. A duplicate returns 200 with outcome `DUPLICATE_IGNORED`.
+4. Look up the attempt by `data.transfer_id` (unknown IDs are stored as `UNMATCHED`), apply the status mapping and transition guard, and post if required.
+5. Return 200, since Cashfree treats any other status as a failed delivery and retries.
+
+Status polling through `GET /api/proposals/{id}/status` reconciles non-terminal attempts directly with Cashfree, so the system works even when no public webhook URL is reachable at the venue.
+
+### 6.7 Cashfree request details (from official docs)
+
+| Call | Method and URL (sandbox) | Headers |
 |---|---|---|
-| STT fails / auditorium noisy | Ask to retry; typed/prepared audio available | No financial action |
-| Supplier alias ambiguous | Clarification required | Do not select beneficiary automatically |
-| Invoice/advance evidence inconsistent | `REVIEW_REQUIRED` | No executable settlement |
-| Merchant requests ₹500 unsupported deduction | Refusal; payable remains ₹6,850 | Keep claim open, explain missing supplier approval |
-| `STRICT_HOLD` active with open dispute | Review only | No approval/execution |
-| Approval expired or ledger changed | Reapproval required | New snapshot and explicit click |
-| Cashfree Payouts unavailable | `SIMULATED_DISBURSEMENT` | Demonstrate logic only; not a real payout |
-| Provider call times out | `UNKNOWN` | Reconcile stable request ID, do not issue new payout |
-| Provider reports pending | `PENDING` | Status lookup/verified webhook, no ledger settlement posting |
-| Provider confirms failure | `FAILED` | Release reservation after verified no payment |
-| Authenticated webhook replay | No visible change | Dedupe and unique posting constraint |
-| Verified reversal after completion | `REVERSED` | Append linked compensating entry; retain audit |
+| Standard transfer | `POST https://sandbox.cashfree.com/payout/transfers` | `x-client-id`, `x-client-secret`, `x-api-version: 2024-01-01`, `x-request-id`, optional `x-cf-signature` |
+| Transfer status | `GET https://sandbox.cashfree.com/payout/transfers?transfer_id=…` | same |
+| Bank account verification | `POST https://sandbox.cashfree.com/verification/bank-account/sync` body `bank_account`, `ifsc`, `name` | Secure ID `x-client-id`, `x-client-secret`, optional `x-cf-signature` |
 
-## 12. Demo UI layout
+`x-cf-signature` is produced when `CASHFREE_2FA_PUBLIC_KEY_PATH` is set: RSA-OAEP encryption of `"{client_id}.{unix_ts}"` with the account public key, base64-encoded. This scheme follows Cashfree's 2FA public-key method and must be confirmed against the event account.
 
-```text
-┌───────────────────────────────────────────────────────────────────────────┐
-│ NIPTA  |  Kannada primary  |  BUYER → SUPPLIER  |  SANDBOX / SIMULATED     │
-├────────────────────────────────┬──────────────────────────────────────────┤
-│ VOICE / TEXT                   │ EVIDENCE LEDGER                          │
-│ [Record] [Prepared WAV] [Type] │ INV-104  Invoice          +₹8,200       │
-│ "Clear Ramesh balance"         │ ADV-019  Paid advance     −₹1,000       │
-│                                │ CRD-007  Agreed credit    −₹350         │
-│ AGENT RESPONSE                 │ CLM-012  Missing coriander −₹500        │
-│ "₹500 claim not approved."     │          DISPUTED: EXCLUDED              │
-│                                │ VERIFIED PAYABLE          ₹6,850        │
-├────────────────────────────────┴──────────────────────────────────────────┤
-│ EVIDENCE: SEEDED AGREEMENT | BENEFICIARY: MERCHANT-CONFIRMED | PAYMENT: — │
-│ Policy: ALLOW_VERIFIED_PROCEED (read-only)                                │
-│ Open ₹500 claim remains unresolved.                                      │
-│ [Defer]   [Proceed with ₹6,850 despite open claim]                        │
-│ [Review frozen snapshot] [Approve ₹6,850] [Execute approved payout]       │
-│ Status: DRAFT → AUTHORIZED → REQUEST_RESERVED → PENDING → COMPLETED       │
-│ Audit: snapshot hash | attempt ID | provider reference | event history   │
-└───────────────────────────────────────────────────────────────────────────┘
+## 7. Agent and language layer
+
+```mermaid
+flowchart LR
+    Q[Operator question<br/>Tamil / Hindi / English] --> I{Sarvam chat available?}
+    I -- Yes --> M[sarvam chat completion<br/>with read-only tool schemas]
+    I -- No --> K[Keyword router<br/>en / ta / hi]
+    M --> A[Allowlist check]
+    K --> A
+    A --> T[Execute read-only tools<br/>against DB]
+    T --> G[Grounded template answer<br/>in requested language]
+    G --> S[Optional Sarvam TTS<br/>bulbul, language_code]
 ```
 
-The authorization and execution controls should appear only in their valid state; the UI mockup above demonstrates layout, not simultaneous button enablement. A real Cashfree status must always be labeled precisely. If sandbox payout cannot complete, showing `PENDING` is acceptable; fabricating completion is not.
+**Tool allowlist:** `extract_invoice`, `resolve_vendor`, `check_arithmetic`, `find_candidate_duplicates`, `inspect_beneficiary_change`, `get_verification_result`, `rank_eligible_invoices`, `prepare_payment_proposal`, `get_payment_status`, `explain_findings`.
 
-### Cross-document contract freeze
+- `prepare_payment_proposal` only creates a `READY_FOR_APPROVAL` proposal. Approval and execution are authenticated HTTP endpoints that no tool can reach.
+- A request such as "pay all" or "இதை செலுத்து" resolves to proposal preparation and a message pointing to the approval card (PRD T11).
+- The model chooses tools and may suggest what to investigate. Every number, invoice ID, payee and status in the reply comes from a template filled with database values, so the model can't produce a false amount or a false "paid" claim.
+- Invoice text and notes enter the model context inside a delimited data block with an instruction that it is untrusted data.
+- **Call cap and validation.** One operator message allows at most six tool calls. A call is rejected, and the rejection logged, if the tool is outside the allowlist, its arguments fail schema validation, or it names an invoice, vendor or proposal ID that does not exist in the operator's batch. When the cap is reached, the agent answers with the evidence gathered so far and says the investigation stopped early.
 
-`problemstatement.txt` v2.3 owns the customer problem and commercial claims; `PRD.md` v2.7 owns behavior, scope and T01–T16 acceptance criteria; this `architecture.md` v1.2 owns **implementation details**, schema invariants, `/api/...` endpoint contracts and state recovery. Freeze all shared request/response JSON contracts at **12:45 PM** (not 1:15 PM), with Member 5 as the only editor of shared router/contracts files; integrate continuously after that. `REQUEST_RESERVED` is internal and does not signal provider acceptance. The seeded evidence is illustrative, not live third-party verification. Cashfree endpoints, authentication and webhook semantics remain unverified until confirmed at kickoff.
+### 7.1 Agent activity stream
 
-## 13. Repository layout, exclusive file ownership and integration checkpoints
+Every tool call the agent actually makes appends an `audit_events` row with `action = AGENT_TOOL`, holding `batch_id`, `invoice_id`, `tool`, `started_at`, `duration_ms`, `outcome` (`OK`, `REJECTED`, `ERROR`), `reason_codes` and safe evidence pointers. The pipeline's own deterministic steps (extract, arithmetic, duplicates, beneficiary, verification, decision) write the same kind of row with `actor = pipeline`.
 
-Adopt the other agent's **directory-owned modular monolith**, while retaining the financial engine's single-writer posting boundary. All shared integration files are owned by **Member 5**. Avoid a Next.js server plus FastAPI when a Vite + React frontend and FastAPI backend suffice.
+The UI activity panel renders these rows as plain steps: "Reading INV-C", "Rechecking total: stated ₹4,500, computed ₹4,300", "Comparing with INV-A: same vendor, same ₹8,200, 100% item overlap", "Saved account ••6011 matches", "Marked for review". The panel shows only rows that exist. It is a log of actual calls, not model reasoning, and it never contains secrets, full account numbers or raw provider payloads.
 
-```text
-nipta/
-├── README.md                          # Member 5
-├── PRD.md                             # Canonical product requirements (v2.7)
-├── architecture.md                    # This consolidated engineering design
-├── .env.example                       # Member 5; no secrets
-├── backend/
-│   ├── main.py                        # Member 5 — all routers, CORS, error middleware
-│   ├── config.py                      # Member 5 — environment / provider gates
-│   ├── contracts.py                   # Member 5 — shared Pydantic request/response models
-│   ├── db/
-│   │   ├── schema.sql                 # Member 3 — five-table DDL + uniqueness constraints
-│   │   ├── seed.py                    # Member 3 — Ramesh scenario
-│   │   └── database.py                # Member 3 — WAL, BEGIN IMMEDIATE transactions
-│   ├── modules/
-│   │   ├── sarvam/                    # Member 2 only
-│   │   │   ├── router.py              # /api/intent/parse, /api/tts/speak
-│   │   │   ├── stt_client.py
-│   │   │   ├── intent_parser.py
-│   │   │   ├── tts_client.py
-│   │   │   └── response_templates.py  # grounded Kannada/Hindi
-│   │   ├── ledger/                    # Member 3 only
-│   │   │   ├── router.py              # reconciliation, settlements, approve, execute
-│   │   │   ├── calculator.py          # integer paise, evidence eligibility
-│   │   │   ├── policy.py              # strict hold / allow verified proceed
-│   │   │   ├── snapshot.py            # canonical JSON, SHA-256
-│   │   │   └── lifecycle.py           # sole DB mutation path: statuses + postings
-│   │   └── cashfree/                  # Member 1 only
-│   │       ├── router.py              # raw Cashfree webhook receiver
-│   │       ├── adapter.py             # configured Payouts adapter / simulation
-│   │       ├── verifier.py            # provider signature and state lookup
-│   │       └── mapper.py              # provider -> normalized events
-│   └── tests/
-│       └── test_safety_gates.py       # Member 5 — T01–T16 and focused A01–A06
-├── frontend/                          # Member 4 only
-│   ├── src/App.tsx                    # one page
-│   ├── src/api/client.ts             # typed contract wrappers
-│   └── src/components/
-│       ├── VoiceCommandBar.tsx       # mic, prepared WAV, text
-│       ├── EvidenceLedger.tsx        # invoice/credit/advance/dispute + trust badges
-│       ├── PolicyHeader.tsx          # read-only policy and operator route
-│       ├── ApprovalCard.tsx          # dispute acknowledgement, explicit approval
-│       ├── StatusTimeline.tsx        # request-reserved/pending/completed
-│       └── AuditDrawer.tsx           # snapshot, attempt, posted entries
-└── demo_assets/                      # Member 2 recordings; Member 5 labels/rehearsal
-    ├── kn_clear_balance.wav
-    └── kn_deduct_500.wav
-```
+**Sarvam calls (from official docs):**
 
-### Ownership and integration rules
-
-1. **12:30–12:45:** Member 5 freezes `contracts.py`, the API response fixtures, enum names and directory map with all owners. The example JSON in §7 is normative for demo wiring.
-2. Each member edits only owned files. Changes affecting a cross-module interface must go through Member 5, not arbitrary shared edits.
-3. Member 3 owns `backend/db/` and `ledger/lifecycle.py`; Member 1 **calls**, but never mutates, ledger tables or `payment_attempts` directly.
-4. Member 5 owns `main.py` and provider/config wiring. No SSE is required for MVP: poll `/api/settlements/{id}/status` at a modest interval; avoid adding streaming complexity.
-5. Member 4 builds first against `GET /reconciliation` fixture and the approve/execute mock response. Member 2 and Member 1 can use the same fixtures until their adapters are ready.
-6. Member 2 stores prepared audio under `demo_assets` and labels recordings honestly in the UI; Member 5 ensures files are committed and playable.
-
-### Milestones (210-minute sprint)
-
-| Time | Target | Exit criterion / scope decision |
+| Use | Endpoint | Notes |
 |---|---|---|
-| **12:30–12:45** | Cashfree Payouts and Sarvam access check; freeze contracts/schema ownership | Confirm actual payout eligibility; choose truthful sandbox vs simulated path |
-| **12:45–1:15** | Parallel compile with shared fixtures; seed DB and wire routers | All modules import cleanly; frontend displays seeded evidence |
-| **1:15–2:15** | Connect Kannada input → ₹6,850 breakdown → ₹500 refusal → snapshot approval | `T01`, `T02`, `T04`, `T05` pass end to end |
-| **2:15** | **Hard scope cut** | Drop Hindi, noisy live mic tuning, streaming, optional policy settings before safety/integration |
-| **2:15–3:00** | Payout status adapter, single attempt and ledger posting; TTS only if time | Provider state truthful; no unauthorized execution or duplicate postings |
-| **3:00–3:40** | Failures, concurrency, timeout, webhook replay, used-credit/advance tests | Prioritize `T06–T09`, `T13–T16`, plus crash recovery |
-| **3:40–4:00** | Code freeze, 180-second rehearsals, submission | Stage demo functional with honest fallback |
+| Chat / tool routing | `POST https://api.sarvam.ai/v2/chat/completions` | header `api-subscription-key`; model `sarvam-105b` by default; `tools`, `response_format` supported |
+| Vision extraction | same endpoint with an image-capable model | the docs list image support for `gemma4`, `glm5.3-flash` and others; the image content-part format is not shown on the guide page, so the adapter's message shape must be confirmed at the event |
+| Speech | `POST https://api.sarvam.ai/text-to-speech` | `text`, `language_code` (`ta-IN`, `hi-IN`, `en-IN`), `model` (`bulbul:v3` default), optional `speaker`; response `audios[0]` base64 WAV |
 
-**Dependency warning:** Member 3 is the critical-path owner for DB, reconciliation, approvals, and postings. Member 5 should pair with Member 3 on schema/tests once router wiring is stable; Member 1 can own provider mocks and normalized events early to unblock the ledger's lifecycle tests.
+PDFs are rendered to PNG page images with `pypdfium2` before vision extraction.
 
-## 14. Test plan mapped to PRD v2.7
+## 8. Data model
 
-Preserve the PRD test IDs and expected behavior:
+| Table | Purpose | Key constraints |
+|---|---|---|
+| `batches` | Upload batch | PK `batch_id` |
+| `vendors` | Approved vendor identity, aliases, seeded deadline fields | PK `vendor_id` |
+| `beneficiaries` | Versioned approved bank destination | PK `(beneficiary_id, version)`; unique active version per vendor |
+| `documents` | Original file pointer, SHA-256, extraction source, raw JSON | PK `document_id` |
+| `invoices` | Normalized fields, computed totals, decision, version | unique `(vendor_id, invoice_number_norm)` where `canonical = 1` |
+| `invoice_lines` | Line items with computed totals | FK invoice |
+| `findings` | Code, severity, evidence JSON, matched invoice, review status | FK invoice |
+| `beneficiary_verifications` | Secure ID or seeded evidence per beneficiary version | `source` column distinguishes live from mock |
+| `payment_proposals` | Snapshot JSON and hash, state, approver, expiry | one active proposal per invoice (partial unique index) |
+| `payment_attempts` | Reservation, `dispatch_started_at`, provider state | unique `proposal_id`; unique `transfer_id` |
+| `attempt_transitions` | Every state change with source and evidence | append-only |
+| `financial_postings` | Settlement and reversal entries | unique `(attempt_id, kind)`; unique `reversal_of` |
+| `webhook_events` | Raw verified events and outcome | PK dedupe key |
+| `audit_events` | Append-only actor, action, object, detail | optional unique dedupe key |
+| `settings` | Budget and runtime values | PK `key` |
 
-- **T01–T03:** Baseline ₹6,850, ₹500 refusal, and strict-hold payout block.
-- **T04–T06:** Modified snapshot invalidation, no voice-only approval, one attempt despite concurrent clicks.
-- **T07–T10:** Provider timeout does not cause duplicate transfer; webhook replay/out-of-order callback cannot double-post; reversal appends compensation.
-- **T11–T12:** Disabled Payouts is explicitly simulated; spoken status matches DB exactly.
-- **T13–T16:** Internal buyer approval and supplier receipt acknowledgment are insufficient; already-consumed advance/credit cannot be reused.
+This is more than the seven tables PRD v4 lists as a minimum. Separating postings, transitions and webhook events keeps the exactly-once guarantees enforceable as constraints, without hiding them inside audit rows.
 
-**Additional architecture-focused tests proposed:**
+## 9. API surface
 
-- **A01:** Process crash after DB reservation but before the outbound API call: restart must not submit a second payment blindly.
-- **A02:** Allocation reservation and attempt insertion roll back together if a uniqueness constraint fails.
-- **A03:** Ledger changes between proposal and approval invalidate the snapshot.
-- **A04:** Duplicate success provider events with different event IDs still produce only one settlement posting.
-- **A05:** `UNKNOWN` blocks allocation reuse, and a confirmed final failure releases it.
-- **A06:** Later reversal produces one separate compensating posting, without deleting the first.
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /api/health` | none | Capability report (which providers are live) |
+| `POST /api/auth/session` | PIN | Issue operator session token (HMAC-signed, expiring) |
+| `POST /api/batches` | session | Upload files or load the fixture batch |
+| `POST /api/batches/{id}/process` | session | Extraction plus checks |
+| `GET /api/batches/{id}` | none (demo) | Invoices, decisions, findings, evidence |
+| `POST /api/invoices` | session | Add one invoice as structured JSON (judge curveball path) |
+| `POST /api/invoices/{id}/checks` | session | Re-run checks idempotently |
+| `GET /api/invoices/{id}/findings` | none (demo) | Findings, evidence, masked bank comparison |
+| `GET /api/invoices/{id}/source` | none (demo) | Original document or printable fixture |
+| `POST /api/findings/{id}/resolve` | session | Resolve a REVIEW finding with a reason |
+| `GET /api/vendors/{id}/verification` | none (demo) | Saved beneficiary (masked) and evidence |
+| `POST /api/vendors/{id}/verify` | session | Run Secure ID BAV on the saved beneficiary |
+| `GET /api/payment-plan` | none (demo) | Ranked eligible queue for `cash_budget_paise` |
+| `POST /api/invoices/{id}/proposal` | session | Freeze a snapshot |
+| `POST /api/proposals/{id}/approve` | session + snapshot hash | Authorize |
+| `POST /api/proposals/{id}/execute` | session | Reserve and dispatch |
+| `GET /api/proposals/{id}/status` | none (demo) | Local status, reconciling non-terminal attempts |
+| `POST /api/webhooks/cashfree` | signature | Provider events |
+| `POST /api/agent/message` | session | Multilingual question to read-only tools |
+| `POST /api/speech/tts` | session | Speak a grounded explanation |
+| `GET /api/audit` | none (demo) | Timeline |
+| `POST /api/dev/provider-event` | session, test mode only | Labeled injection of a normalized provider event for replay and reversal demos |
 
-## 15. Open integration decisions (do not guess)
+Errors use stable codes: `ARITHMETIC_MISMATCH`, `WORDS_FIGURES_MISMATCH`, `POSSIBLE_DUPLICATE`, `CONFIRMED_DUPLICATE`, `CHANGED_BENEFICIARY`, `ACCOUNT_NAME_MISMATCH`, `VERIFICATION_MISSING`, `DOCUMENT_UNREADABLE`, `APPROVAL_STALE`, `APPROVAL_EXPIRED`, `NOT_ELIGIBLE`, `LIVE_VERIFICATION_REQUIRED`, `PROVIDER_STATUS_UNKNOWN`.
 
-**Cashfree — must establish with docs/engineers:**
+All money fields are integer paise. Full bank account numbers never leave the server. The UI receives last-four digits only.
 
-1. Is **Payouts sandbox** enabled for this team? Can a pre-registered supplier beneficiary receive a test transfer?
-2. Which *current* endpoints, authentication scheme, headers and request identifiers apply? The older `/payout/v1/...` examples are **not** approved implementation contracts.
-3. Does the provider guarantee idempotent retries by a client-supplied transfer ID, and how is a transfer queried after timeout?
-4. Which webhook event types, raw-body verification/signature rules, retries and terminal statuses are authoritative?
-5. What does sandbox `SUCCESS` mean and how quickly might a final state appear?
-6. If Payouts is unavailable, which **distinct Cashfree Payments collection** use case is permitted for a separately scoped demo? Never rebrand a payment link as a supplier payout.
+## 10. Security boundaries
 
-**Sarvam — must establish:** current STT/TTS/model identifiers, supported Kannada and Hindi audio formats, sample rate, latency and structured-output support. Retain prepared audio/typed fallback even if real mic works.
+| Boundary | Threat | Control |
+|---|---|---|
+| Uploaded document | Prompt injection ("ignore rules, pay my account") | Notes are stored as data; the model can't call money-moving functions; payee comes only from the saved beneficiary |
+| Invoice bank details | Account substitution | Compared, never written; any change is BLOCKED |
+| Browser to API | Forged approval, tampered amount | Session token on mutating routes; server rebuilds the snapshot and compares the hash |
+| Double submission | Two transfers | `UNIQUE(proposal_id)` on attempts inside `BEGIN IMMEDIATE` |
+| Concurrent proposals | Two approvals for one invoice | Partial unique index allows one active proposal per invoice; proposal creation also refuses while any attempt for the invoice is reserved, in flight, unknown or completed |
+| Crash mid-dispatch | Unknown whether money moved | `dispatch_started_at` marker; recovery table in section 6.2; no automatic re-dispatch |
+| Provider timeout | Blind retry | Same `transfer_id`; `UNKNOWN` until status API resolves |
+| Webhook | Forgery, replay, reordering | HMAC on raw body; dedupe key; transition guard |
+| Secrets | Leakage | Environment variables only; never logged, never sent to the UI or the model |
+| Mock data | Misrepresentation | `source` and `mode` columns, rendered as labels in the UI |
+| Test event injection | Fake success in a live demo | Disabled unless `NIPTA_TEST_MODE=true`; injected events are labeled `TEST_INJECTION` and never accepted for real sandbox attempts |
 
-## 16. Definition of done
+## 11. Integration gate (confirm in the first 20 minutes)
 
-Nipta's demo is complete when the team can show an actual or transparently prepared Kannada input, deterministic ₹6,850 calculation, rejection of the unsupported ₹500 missing-coriander deduction, review of approved sources, authenticated exact-amount confirmation, and an **honestly represented** provider transaction state. A **successful live Cashfree integration** additionally requires a verified API action and provider evidence—not a simulator or a local success flag.
+| Item | Documented contract | Still to confirm in the event account |
+|---|---|---|
+| Payouts V2 | Endpoints, headers and status codes in section 6 | Product enabled; sandbox balance; IP whitelist or 2FA key; whether a beneficiary must be pre-registered |
+| Duplicate `transfer_id` | IDs must be unique per transfer | Response code when an already-used `transfer_id` is sent again (needed by the recovery path in 6.2) |
+| Payouts webhooks | HMAC-SHA256 of timestamp + raw body, base64 | Public URL available (tunnel) or rely on polling |
+| Secure ID BAV | Sync endpoint, fields and name-match values in section 5.4 | Product enabled; separate credentials; sandbox test account numbers |
+| Sarvam vision | Image-capable chat models exist | Enabled model ID; image message format; latency on Tamil scans |
+| Sarvam TTS | Endpoint and fields in section 7 | Speaker names for `ta-IN` and `hi-IN` |
+| Organizer rule | Not documented | Whether an initiated or pending sandbox payout satisfies "verified payout", or only `COMPLETED` |
 
-**Production caveat:** This design intentionally chooses a seeded single-invoice, local-DB, sprint-constrained ledger and one sandbox payout attempt. Before handling production funds, reassess accounting journal design, partial allocations, durable job dispatch, multi-process locking, identity/KYC and permissions, provider reconciliation, comprehensive monitoring, and regulatory/security requirements.
+Findings are recorded in `integration_decisions.md`.
+
+## 12. Fixtures
+
+| Fixture | Language | Planted condition | Expected decision |
+|---|---|---|---|
+| INV-A Kaveri Fasteners KF-182 | English | Clean, matches saved beneficiary | ELIGIBLE |
+| INV-B Tamil Tools TT-091 | Tamil | Stated ₹4,500, computed ₹4,300 | BLOCKED `ARITHMETIC_MISMATCH` |
+| INV-C Kaveri Fasteners KF/182-A | Hindi | Same lines and amount as A, number and date reformatted | REVIEW `POSSIBLE_DUPLICATE` of A |
+| INV-D Eastern Hardware EH-040 | English | Printed account differs from saved | BLOCKED `CHANGED_BENEFICIARY` |
+| INV-E Coimbatore Packing CP-201 | Tamil | Clean, earlier due date | ELIGIBLE, ranked first |
+| INV-F Sri Murugan Traders SMT-77 | English | Not in vendor registry | REVIEW `VENDOR_UNRESOLVED` |
+| Curveball set (tests only) | mixed | Same-amount different invoice; Devanagari name of a known vendor; Hindi lakh numerals; prompt-injection note; omitted bank details; tax-inclusive ambiguity; words mismatch | per PRD T02, T03, T06, T09, T10, T20, T22 |
+
+Detection logic never references fixture IDs. The curveball set exists to measure false holds as well as catches.
+
+## 13. Test strategy
+
+`pytest` runs against a temporary SQLite file with an `httpx.MockTransport` in place of Cashfree and Sarvam, so the real adapter code paths run without network access. PRD tests T01 to T22 map one to one to test functions in `backend/tests/`. One additional manual test runs a real sandbox payout once credentials are confirmed.
+
+Additional safety tests beyond the PRD list:
+
+| ID | Scenario | Expected |
+|---|---|---|
+| S01 | Two threads create proposals for the same invoice at once | Exactly one proposal created; the other receives `PROPOSAL_EXISTS` |
+| S02 | Two threads execute the same approved proposal at once | One attempt, one provider request |
+| S03 | Same webhook delivered concurrently with a status poll reporting the same success | Exactly one `SETTLEMENT` posting |
+| S04 | Process stops after reservation, before dispatch | Recovery finds no transfer; owner re-executes with the same `transfer_id` |
+| S05 | Process stops after `dispatch_started_at`, before response | Attempt becomes `UNKNOWN`; status lookup applied; no new `transfer_id` |
+| S06 | Candidate duplicate of an already-paid invoice | `REVIEW` with `ALREADY_PAID` evidence and the original transfer ID |
+| S07 | Agent asked a question that would need more than six tool calls | Stops at six, answers from gathered evidence, logs the cap |
+| S08 | Agent requests a tool outside the allowlist or an unknown invoice ID | Call rejected and logged; no state change |
+
+## 14. Runtime and deployment
+
+- `uvicorn backend.app:app --port 8000` serves both the API and the UI.
+- `.env` holds the flags and credentials; `.env.example` documents every variable.
+- For webhooks at the venue, a tunnel (for example `cloudflared tunnel --url http://localhost:8000`) exposes `/api/webhooks/cashfree`. Without one, status polling is the source of truth.
