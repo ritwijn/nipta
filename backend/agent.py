@@ -58,7 +58,8 @@ TOOL_DESCRIPTIONS = {
     "find_candidate_duplicates": "Show duplicate findings for an invoice.",
     "inspect_beneficiary_change": "Compare printed bank details with the saved beneficiary.",
     "get_verification_result": "Show the latest bank verification of a vendor's saved beneficiary.",
-    "rank_eligible_invoices": "Rank eligible invoices within a cash budget (paise).",
+    "rank_eligible_invoices": ("Overview of the batch (which invoices are valid / ready to pay, under review, "
+                               "blocked and why) plus a ranked payment queue within a cash budget (paise)."),
     "prepare_payment_proposal": "Prepare (not approve, not execute) a payment proposal for an eligible invoice.",
     "get_payment_status": "Show the stored payment status of an invoice.",
     "explain_findings": "Explain why an invoice is eligible, under review or blocked.",
@@ -77,6 +78,10 @@ PLAN_WORDS = ("budget", "priority", "prioriti", "plan", "first", "order", "ம�
 BANK_WORDS = ("bank", "account", "ifsc", "beneficiary", "கணக்கு", "வங்கி", "खाता", "बैंक")
 MATH_WORDS = ("total", "arithmetic", "math", "words", "மொத்த", "कुल", "जोड़")
 ALL_WORDS = ("all", "every", "everything", "எல்லா", "அனைத்து", "सभी", "सब")
+VALID_WORDS = ("valid", "eligible", "ready", "payable", "can be paid", "which invoice", "what invoice",
+               "summary", "overview", "safe to pay",
+               "சரியான", "செல்லுபடி", "தகுதி", "தயார்", "எந்த", "எவை",
+               "वैध", "सही", "योग्य", "तैयार", "कौन", "कौनसे")
 
 
 class _CallBudget:
@@ -87,20 +92,26 @@ class _CallBudget:
 
 
 def _batch_invoices(conn: sqlite3.Connection, batch_id: str) -> list[dict]:
-    return db.rows(conn, "SELECT i.*, v.display_name FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id"
+    return db.rows(conn, "SELECT i.*, v.display_name, v.aliases_json FROM invoices i"
+                         " LEFT JOIN vendors v ON v.vendor_id=i.vendor_id"
                          " WHERE i.batch_id=? ORDER BY i.ingested_seq", (batch_id,))
 
 
 def _mentioned_invoices(text: str, invoices: list[dict]) -> list[str]:
+    """Invoice IDs, invoice numbers, or vendor names in any script (aliases), as typed or transcribed."""
     t = text.casefold()
+    compact = re.sub(r"[\s\-/]", "", t)
     found: list[str] = []
     for inv in invoices:
         iid = inv["invoice_id"]
         names = [iid.casefold(), (inv["invoice_number_raw"] or "").casefold()]
         short = iid.split("-")[-1].casefold()
-        if any(n and n in t for n in names) or re.search(rf"\binvoice\s+{re.escape(short)}\b", t):
+        if any(n and (n in t or re.sub(r"[\s\-/]", "", n) in compact) for n in names) \
+                or re.search(rf"\binvoice\s+{re.escape(short)}\b", t):
             found.append(iid)
-        elif inv["display_name"] and inv["display_name"].casefold() in t:
+            continue
+        vendor_names = [inv["display_name"], inv["vendor_name_raw"], *json.loads(inv["aliases_json"] or "[]")]
+        if any(n and n.casefold() in t for n in vendor_names):
             found.append(iid)
     return list(dict.fromkeys(found))
 
@@ -124,6 +135,9 @@ def keyword_route(text: str, invoices: list[dict]) -> list[dict]:
             add("rank_eligible_invoices")
         for iid in chosen:
             add("prepare_payment_proposal", invoice_id=iid)
+        return calls
+    if not ids and any(w in t for w in VALID_WORDS) and not any(w in t for w in WHY_WORDS):
+        add("rank_eligible_invoices")  # "which invoices are valid?" -> batch overview + safe queue
         return calls
     if any(w in t for w in PLAN_WORDS):
         amount = re.search(r"(₹|rs\.?|inr)\s*[\d,]+(\.\d+)?|\b\d[\d,]*\s*(lakh|लाख)", t)
@@ -221,12 +235,13 @@ def run_tool(conn: sqlite3.Connection, name: str, args: BaseModel, batch_id: str
     if name == "rank_eligible_invoices":
         budget = a.get("cash_budget_paise") or int(db.get_setting(conn, "cash_budget_paise", "900000"))
         plan = priority.payment_plan(conn, batch_id, budget)
-        parts = [f"Budget {format_inr(budget)}:"]
+        overview = explain.explain_batch(conn, batch_id, lang)
+        parts = [overview + "\n", f"Budget {format_inr(budget)}:"]
         parts += [f"#{e['rank']} {e['invoice_id']} {format_inr(e['amount_paise'])}" for e in plan["selected"]]
         parts += [f"skip {e['invoice_id']} {format_inr(e['amount_paise'])} (exceeds remaining "
                   f"{format_inr(e['remaining_budget_paise'])})" for e in plan["skipped"]]
         parts.append(plan["disclaimer"])
-        return " ".join(parts), [], {"plan": plan}
+        return parts[0] + " ".join(parts[1:]), [], {"plan": plan}
     if name == "prepare_payment_proposal":
         try:
             p = approval.create_proposal(conn, iid, operator_id)

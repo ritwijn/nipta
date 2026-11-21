@@ -282,6 +282,7 @@ def get_batch(batch_id: str, lang: str = "en", conn: sqlite3.Connection = Depend
     pending_docs = db.rows(conn, "SELECT document_id, original_name FROM documents d WHERE d.batch_id=? AND NOT EXISTS"
                                  " (SELECT 1 FROM invoices i WHERE i.document_id=d.document_id)", (batch_id,))
     return {**b, "invoices": [invoice_summary(conn, i, lang) for i in invs], "unprocessed_documents": pending_docs,
+            "summary": explain.batch_summary(conn, batch_id),
             "cash_budget_paise": int(db.get_setting(conn, "cash_budget_paise", "900000"))}
 
 
@@ -463,6 +464,56 @@ def agent_message(body: AgentMessageRequest, operator: str = Depends(require_ses
     return agent.handle_message(conn, operator, body.batch_id, body.text, body.language)
 
 
+MAX_VOICE_BYTES = 10 * 1024 * 1024
+NOT_HEARD = {"en": "I didn't catch that. Please try again or type your question.",
+             "ta": "சரியாகக் கேட்கவில்லை. மீண்டும் முயற்சிக்கவும் அல்லது தட்டச்சு செய்யவும்.",
+             "hi": "मैं समझ नहीं पाया। कृपया दोबारा बोलें या टाइप करें।"}
+
+
+@app.post("/api/agent/voice")
+def agent_voice(
+    audio: UploadFile = File(...),
+    batch_id: str = Form(...),
+    language: str = Form(default="auto"),
+    operator: str = Depends(require_session),
+    conn: sqlite3.Connection = Depends(get_conn),
+):
+    """Spoken question -> Sarvam speech-to-text -> the same constrained agent as typed questions.
+
+    Voice can only ask questions or prepare proposals; approval stays an authenticated click on the card.
+    """
+    s = get_settings()
+    if not s.stt_live:
+        raise NiptaError("STT_UNAVAILABLE", "Sarvam speech-to-text is not enabled; type the question instead", 409)
+    content = audio.file.read()
+    if not content or len(content) > MAX_VOICE_BYTES:
+        raise NiptaError("AUDIO_REJECTED", "Audio is empty or larger than 10 MB", 400)
+    try:
+        stt = sarvam.transcribe(content, audio.filename or "question.webm", audio.content_type or "",
+                                None if language == "auto" else language)
+    except sarvam.SarvamError as exc:
+        raise NiptaError("STT_ERROR", f"Speech-to-text failed: {exc}", 502)
+    detected = sarvam.CODE_TO_LANG.get(stt["language_code"] or "")
+    reply_lang = detected or (language if language in ("en", "ta", "hi") else "en")
+    db.audit(conn, operator, "VOICE_TRANSCRIBED", None,
+             {"language_code": stt["language_code"], "chars": len(stt["transcript"]),
+              "transcript": stt["transcript"][:300], "request_id": stt["request_id"]}, batch_id=batch_id)
+    if not stt["transcript"].strip():
+        result = {"router": None, "router_note": None, "reply": NOT_HEARD[reply_lang], "tool_calls": [],
+                  "stopped_early": False, "proposals": []}
+    else:
+        result = agent.handle_message(conn, operator, batch_id, stt["transcript"], reply_lang)
+    out = {"transcript": stt["transcript"], "language_code": stt["language_code"], "reply_language": reply_lang,
+           **result, "reply_audio_b64": None}
+    if s.tts_live:
+        try:  # the spoken reply is the server's own template text, never client-supplied text
+            wav = sarvam.text_to_speech(result["reply"].replace("•", ""), reply_lang)
+            out["reply_audio_b64"] = base64.b64encode(wav).decode()
+        except Exception as exc:  # speech is optional; the text reply stands
+            out["router_note"] = (out.get("router_note") or "") + f" (spoken reply unavailable: {type(exc).__name__})"
+    return out
+
+
 @app.post("/api/speech/tts")
 def speech(body: TTSRequest, operator: str = Depends(require_session), conn: sqlite3.Connection = Depends(get_conn)):
     if not get_settings().tts_live:
@@ -476,7 +527,7 @@ def speech(body: TTSRequest, operator: str = Depends(require_session), conn: sql
         text = explain.explain_proposal(conn, body.object_id, body.language)
     try:
         audio = sarvam.text_to_speech(text.replace("•", ""), body.language)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         raise NiptaError("TTS_ERROR", f"{type(exc).__name__}", 502)
     return Response(content=audio, media_type="audio/wav")
 

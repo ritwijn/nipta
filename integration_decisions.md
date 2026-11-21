@@ -15,8 +15,10 @@ confirmed here, Nipta keeps that provider OFF and uses its labelled fallback.
 | Webhook signature scheme matches HMAC-SHA256(timestamp + raw body), base64 | ☐ unconfirmed | | |
 | Secure ID BAV enabled; credentials; sandbox test account numbers | ☐ unconfirmed | | |
 | Secure ID `x-api-version` header required? | ☐ unconfirmed | | |
-| Sarvam vision model ID and image message format | ☐ unconfirmed | Adapter sends OpenAI-style `image_url` data URLs | |
-| Sarvam TTS speaker names for `ta-IN`, `hi-IN`; field name `language_code` | ☐ unconfirmed | | |
+| Sarvam invoice reading | ☑ documented, ☐ live-tested | Default: Document AI Extract job (`/doc-ai/v1/job/extract` → status → results) with our JSON schema. Alternative `chat` mode: `/v1/chat/completions`, `sarvam-105b`, `image_url` data URL. Handwriting support not stated on the Vision model page. | 2026-11-21 |
+| Sarvam TTS | ☑ documented, ☐ live-tested | `POST /text-to-speech`, `text` ≤ 2,500 chars, `language_code`, `bulbul:v3`, speakers e.g. `shubh` (default) | 2026-11-21 |
+| Sarvam STT (voice questions) | ☑ documented, ☐ live-tested | `POST /speech-to-text` multipart, `saaras:v4`, `language_code=unknown` auto-detects; WebM accepted; REST meant for < 30 s | 2026-11-21 |
+| Sarvam chat (agent) | ☑ documented, ☐ live-tested | `POST /v1/chat/completions` (not v2); Bearer + `api-subscription-key`; tools supported | 2026-11-21 |
 | Organizer rule: does INITIATED/PENDING count as "verified payout", or only COMPLETED? | ☐ unconfirmed | | |
 
 ## Manual sandbox payout test

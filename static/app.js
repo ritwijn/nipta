@@ -67,13 +67,17 @@ const lq = () => `lang=${state.lang}`;
 // ---- capability badges & session ------------------------------------------
 
 const CAP_LABELS = {
-  sarvam_vision: "Extraction", sarvam_chat: "Agent", sarvam_tts: "Speech",
+  sarvam_vision: "Extraction", sarvam_chat: "Agent", sarvam_stt: "Voice input", sarvam_tts: "Speech",
   cashfree_payouts: "Payouts", cashfree_webhooks: "Webhooks", cashfree_secure_id: "Secure ID",
 };
 
 async function loadHealth() {
   const h = await api("/api/health");
   const caps = h.capabilities;
+  state.caps = caps;
+  $("#voiceHint").textContent = caps.sarvam_stt === "LIVE"
+    ? "Tap 🎤, ask in Tamil, Hindi or English, tap again to send (max 25 s)."
+    : "Voice input is off (enable Sarvam speech-to-text). Typed questions work.";
   const el = $("#capabilities");
   el.innerHTML = Object.entries(CAP_LABELS).map(([k, label]) => {
     const v = caps[k];
@@ -389,13 +393,61 @@ $("#agentForm").addEventListener("submit", async (e) => {
   const out = $("#agentReply");
   out.textContent = "…";
   try {
-    const r = await api("/api/agent/message", { method: "POST", json: { batch_id: state.batchId, text, language: state.lang } });
-    out.innerHTML = `${esc(r.reply)}<div class="calls">${esc(r.router)}${r.router_note ? " · " + esc(r.router_note) : ""} · ${r.tool_calls.map((c) => `${esc(c.tool)}(${esc(c.invoice_id || "")}) ${esc(c.outcome)}`).join(", ") || "no tools"}</div>`;
-    if (r.proposals.length) {
-      await refreshBatch();
-      showInvoice(r.proposals[0].invoice_id);
-    } else loadActivity();
+    renderAgentReply(await api("/api/agent/message", { method: "POST", json: { batch_id: state.batchId, text, language: state.lang } }));
   } catch (err) { out.textContent = err.message; }
+});
+
+function renderAgentReply(r) {
+  const out = $("#agentReply");
+  out.innerHTML =
+    (r.transcript !== undefined ? `<div class="heard">“${esc(r.transcript)}”${r.language_code ? ` · ${esc(r.language_code)}` : ""}</div>` : "") +
+    `${esc(r.reply)}<div class="calls">${esc(r.router || "")}${r.router_note ? " · " + esc(r.router_note) : ""} · ${r.tool_calls.map((c) => `${esc(c.tool)}(${esc(c.invoice_id || "")}) ${esc(c.outcome)}`).join(", ") || "no tools"}</div>`;
+  if (r.reply_audio_b64) {
+    const bytes = Uint8Array.from(atob(r.reply_audio_b64), (ch) => ch.charCodeAt(0));
+    new Audio(URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }))).play().catch(() => {});
+  }
+  if (r.proposals && r.proposals.length) {
+    refreshBatch().then(() => showInvoice(r.proposals[0].invoice_id));
+  } else loadActivity();
+}
+
+// ---- voice questions (Sarvam speech-to-text) ----------------------------------
+
+const voice = { rec: null, chunks: [], timer: null };
+
+async function startRecording() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) { toast("This browser cannot record audio"); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (_) { toast("Microphone permission denied"); return; }
+  const type = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
+  voice.rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+  voice.chunks = [];
+  voice.rec.ondataavailable = (e) => e.data.size && voice.chunks.push(e.data);
+  voice.rec.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    $("#micBtn").classList.remove("recording");
+    clearTimeout(voice.timer);
+    const blob = new Blob(voice.chunks, { type: voice.rec.mimeType || "audio/webm" });
+    voice.rec = null;
+    if (!blob.size) return;
+    const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "m4a" : "webm";
+    const fd = new FormData();
+    fd.append("audio", blob, `question.${ext}`);
+    fd.append("batch_id", state.batchId);
+    fd.append("language", "auto");
+    $("#agentReply").textContent = "Listening…";
+    try { renderAgentReply(await api("/api/agent/voice", { method: "POST", body: fd })); }
+    catch (err) { $("#agentReply").textContent = err.message; }
+  };
+  voice.rec.start();
+  $("#micBtn").classList.add("recording");
+  voice.timer = setTimeout(() => voice.rec && voice.rec.stop(), 25000);
+}
+
+$("#micBtn").addEventListener("click", () => {
+  if (!state.batchId) return;
+  if (voice.rec) voice.rec.stop(); else startRecording();
 });
 
 // ---- payment plan -------------------------------------------------------------

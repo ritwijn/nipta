@@ -46,10 +46,16 @@ def validate_extraction(inv: NormInvoice, min_confidence: float) -> list[Finding
     if missing:
         findings.append(Finding(code="DOCUMENT_INCOMPLETE", severity="REVIEW", evidence={"fields": missing}))
 
+    def present(field: str) -> bool:
+        # OCR engines report ~0 confidence for fields that are simply not on the page. Absence is handled by
+        # DOCUMENT_INCOMPLETE (when the field is required), so only score fields that actually have a value.
+        value = getattr(raw, field, None)
+        return value not in (None, "", [])
+
     low = {
         name: conf
         for name, conf in raw.field_confidence.items()
-        if name.split("[")[0].split(".")[0] in MONETARY_FIELDS and conf < min_confidence
+        if (base := name.split("[")[0].split(".")[0]) in MONETARY_FIELDS and present(base) and conf < min_confidence
     }
     if low:
         findings.append(Finding(

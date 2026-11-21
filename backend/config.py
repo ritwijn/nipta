@@ -40,11 +40,16 @@ class Settings:
     sarvam_api_key: str | None = None
     sarvam_base_url: str = "https://api.sarvam.ai"
     sarvam_chat_model: str = "sarvam-105b"
-    sarvam_vision_model: str | None = None
+    sarvam_vision_model: str = "sarvam-105b"          # used only when extraction mode is "chat"
+    sarvam_extraction_mode: str = "doc_ai"            # "doc_ai" (Sarvam Vision OCR job) or "chat"
+    sarvam_doc_ai_timeout_seconds: int = 120
     sarvam_tts_model: str = "bulbul:v3"
+    sarvam_tts_speaker: str | None = None             # e.g. "shubh" (bulbul:v3 default)
+    sarvam_stt_model: str = "saaras:v4"
     sarvam_vision_enabled: bool = False
     sarvam_chat_enabled: bool = False
     sarvam_tts_enabled: bool = False
+    sarvam_stt_enabled: bool = False
 
     cashfree_payouts_enabled: bool = False
     cashfree_base_url: str = "https://sandbox.cashfree.com"
@@ -92,7 +97,12 @@ class Settings:
 
     @property
     def vision_live(self) -> bool:
-        return bool(self.sarvam_vision_enabled and self.sarvam_api_key and self.sarvam_vision_model)
+        return bool(self.sarvam_vision_enabled and self.sarvam_api_key
+                    and self.sarvam_extraction_mode in ("doc_ai", "chat"))
+
+    @property
+    def stt_live(self) -> bool:
+        return bool(self.sarvam_stt_enabled and self.sarvam_api_key)
 
     @property
     def chat_live(self) -> bool:
@@ -108,11 +118,16 @@ def load_settings() -> Settings:
         sarvam_api_key=_str("SARVAM_API_KEY"),
         sarvam_base_url=_str("SARVAM_BASE_URL", "https://api.sarvam.ai"),
         sarvam_chat_model=_str("SARVAM_CHAT_MODEL", "sarvam-105b"),
-        sarvam_vision_model=_str("SARVAM_VISION_MODEL"),
+        sarvam_vision_model=_str("SARVAM_VISION_MODEL", "sarvam-105b"),
+        sarvam_extraction_mode=(_str("SARVAM_EXTRACTION_MODE", "doc_ai") or "doc_ai").lower(),
+        sarvam_doc_ai_timeout_seconds=_int("SARVAM_DOC_AI_TIMEOUT_SECONDS", 120),
         sarvam_tts_model=_str("SARVAM_TTS_MODEL", "bulbul:v3"),
+        sarvam_tts_speaker=_str("SARVAM_TTS_SPEAKER"),
+        sarvam_stt_model=_str("SARVAM_STT_MODEL", "saaras:v4"),
         sarvam_vision_enabled=_bool("SARVAM_VISION_ENABLED", False),
         sarvam_chat_enabled=_bool("SARVAM_CHAT_ENABLED", False),
         sarvam_tts_enabled=_bool("SARVAM_TTS_ENABLED", False),
+        sarvam_stt_enabled=_bool("SARVAM_STT_ENABLED", False),
         cashfree_payouts_enabled=_bool("CASHFREE_PAYOUTS_ENABLED", False),
         cashfree_base_url=_str("CASHFREE_BASE_URL", "https://sandbox.cashfree.com"),
         cashfree_payouts_client_id=_str("CASHFREE_PAYOUTS_CLIENT_ID"),
@@ -171,7 +186,9 @@ def capability_report(s: Settings | None = None) -> dict:
 
     return {
         "sarvam_vision": mode(s.vision_live, s.sarvam_vision_enabled, "OFF_USING_PRE_EXTRACTED_FIXTURES"),
+        "sarvam_extraction_mode": s.sarvam_extraction_mode,
         "sarvam_chat": mode(s.chat_live, s.sarvam_chat_enabled, "OFF_USING_KEYWORD_ROUTER"),
+        "sarvam_stt": mode(s.stt_live, s.sarvam_stt_enabled, "OFF_TYPED_QUESTIONS_ONLY"),
         "sarvam_tts": mode(s.tts_live, s.sarvam_tts_enabled, "OFF"),
         "cashfree_payouts": mode(s.payouts_live, s.cashfree_payouts_enabled, "OFF_SIMULATED"),
         "cashfree_webhooks": "SIGNATURE_CHECK_READY" if s.cashfree_webhook_secret else "OFF_POLLING_ONLY",

@@ -188,6 +188,45 @@ def explain_invoice(conn: sqlite3.Connection, invoice_id: str, lang: str = "en")
     return "\n".join(lines)
 
 
+SUMMARY_HEAD = {
+    "en": "{n} invoices: {e} ready to pay, {r} need review, {b} blocked.",
+    "ta": "{n} விலைப்பட்டியல்கள்: {e} செலுத்தத் தயார், {r} மறுபரிசீலனை தேவை, {b} தடுக்கப்பட்டவை.",
+    "hi": "{n} इनवॉइस: {e} भुगतान के लिए तैयार, {r} समीक्षा आवश्यक, {b} रोके गए।",
+}
+
+
+def batch_summary(conn: sqlite3.Connection, batch_id: str) -> dict:
+    """Batch scorecard (PRD v4.1): counts by decision and by open finding code. Pure aggregation."""
+    by_decision = {"ELIGIBLE": 0, "REVIEW": 0, "BLOCKED": 0}
+    for r in conn.execute("SELECT decision, COUNT(*) AS n FROM invoices WHERE batch_id=? GROUP BY decision",
+                          (batch_id,)):
+        by_decision[r["decision"]] = r["n"]
+    by_code = {r["code"]: r["n"] for r in conn.execute(
+        "SELECT f.code, COUNT(*) AS n FROM findings f JOIN invoices i ON i.invoice_id=f.invoice_id"
+        " WHERE i.batch_id=? AND f.status='OPEN' GROUP BY f.code ORDER BY n DESC, f.code", (batch_id,))}
+    return {"total": sum(by_decision.values()), "by_decision": by_decision, "by_finding_code": by_code}
+
+
+def explain_batch(conn: sqlite3.Connection, batch_id: str, lang: str = "en") -> str:
+    """Which invoices are valid, which need review, which are blocked, with the reason for each hold."""
+    lang = _lang(lang)
+    s = batch_summary(conn, batch_id)["by_decision"]
+    lines = [SUMMARY_HEAD[lang].format(n=sum(s.values()), e=s["ELIGIBLE"], r=s["REVIEW"], b=s["BLOCKED"])]
+    invs = db.rows(conn, "SELECT i.*, v.display_name FROM invoices i LEFT JOIN vendors v ON v.vendor_id=i.vendor_id"
+                         " WHERE i.batch_id=? ORDER BY CASE i.decision WHEN 'ELIGIBLE' THEN 0 WHEN 'REVIEW' THEN 1"
+                         " ELSE 2 END, i.ingested_seq", (batch_id,))
+    for inv in invs:
+        head = (f"{DECISION[inv['decision']][lang]}: {inv['invoice_id']} · "
+                f"{inv['display_name'] or inv['vendor_name_raw'] or '—'} · {format_inr(inv['stated_total_paise'])}")
+        f = db.row(conn, "SELECT * FROM findings WHERE invoice_id=? AND status='OPEN'"
+                         " ORDER BY CASE severity WHEN 'BLOCK' THEN 0 ELSE 1 END, created_at LIMIT 1",
+                   (inv["invoice_id"],))
+        if f and inv["decision"] != "ELIGIBLE":
+            head += " — " + explain_finding(f["code"], json.loads(f["evidence_json"]), f["matched_invoice_id"], lang)
+        lines.append("• " + head)
+    return "\n".join(lines)
+
+
 def explain_attempt(attempt: dict | None, lang: str = "en") -> str:
     lang = _lang(lang)
     if attempt is None:

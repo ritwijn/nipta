@@ -39,7 +39,7 @@
             <select id="batchSelect" aria-label="Batch"></select>
             <button id="loadFixtures" class="secondary" data-auth>Load demo batch</button>
             <label class="file-btn secondary" data-auth>
-              Upload bills<input id="upload" type="file" multiple accept=".pdf,.png,.jpg,.jpeg" hidden>
+              Upload bills<input id="upload" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf" hidden>
             </label>
             <button id="processBatch" data-auth>Run checks</button>
           </div>
@@ -63,9 +63,11 @@
       <div class="panel">
         <div class="panel-head"><h2>Ask Nipta</h2></div>
         <form id="agentForm" class="agent-form">
-          <input id="agentText" placeholder="e.g. Why is INV-C on hold?  /  இதை செலுத்து" aria-label="Question">
+          <input id="agentText" placeholder="Which invoices are valid?  /  எந்த பில்கள் சரியானவை?" aria-label="Question">
           <button type="submit" data-auth>Ask</button>
+          <button type="button" id="micBtn" class="secondary mic" data-auth title="Ask by voice (Tamil, Hindi or English)" aria-label="Ask by voice">🎤</button>
         </form>
+        <div id="voiceHint" class="small muted"></div>
         <div id="agentReply" class="agent-reply"></div>
       </div>
 
