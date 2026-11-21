@@ -105,7 +105,7 @@ All vendors, documents, accounts and dates must be synthetic. Use a saved vendor
 
 ### Multiple findings and duplicate precedence
 - Every rule runs on every invoice; one finding does not stop the other checks. All findings are stored and shown, and the invoice takes the most severe decision (BLOCKED > REVIEW > ELIGIBLE).
-- When two invoices look like the same obligation, the reference copy is the one already paid or with a transfer in flight; otherwise it is the one received first (upload time, then invoice date, then stable document ID). The later copy is BLOCKED if the reference is paid, INITIATED, PENDING or UNKNOWN, and REVIEW otherwise. The reference copy is judged only on its own checks and is not held just because a later copy exists.
+- When two invoices look like the same obligation, the later-ingested invoice is the one flagged; the earlier one is judged only on its own checks. An exact duplicate (same vendor and normalized invoice number, or same document hash) is BLOCKED. A near-duplicate is REVIEW. If the matched invoice is already paid or has a transfer in REQUEST_RESERVED, INITIATED, PENDING or UNKNOWN, the finding also carries ALREADY_PAID or PAYMENT_IN_FLIGHT and shows that payment evidence first; an exact match is still BLOCKED and a near match stays REVIEW. Scoring details are in architecture.md §5.2.
 
 ### Owner approval in his own language
 - The approval card is rendered in the operator's chosen language (Tamil, Hindi or English): vendor name, masked approved account, amount in figures, amount in words in that language, due date and every open warning.
@@ -389,7 +389,7 @@ This replaces all team-member assignment tables and assumes the 3.5-hour event w
 | T22 | Unseen valid invoice with unfamiliar layout | Parse or flag specific uncertainty; avoid unsupported hard block |
 | T23 | One invoice with both wrong arithmetic and a changed account | BLOCKED; both findings listed |
 | T24 | Original and disguised repeat in the same batch, neither paid | Earlier copy judged on its own checks; later copy REVIEW and linked to it |
-| T25 | Repeat of an invoice already paid or with an INITIATED/PENDING/UNKNOWN transfer | BLOCKED as duplicate; no new proposal possible |
+| T25 | Exact repeat of an invoice already paid or with a transfer in flight; separately, a near-duplicate of it | Exact repeat BLOCKED with ALREADY_PAID/PAYMENT_IN_FLIGHT; near-duplicate REVIEW with the payment evidence shown first; neither can be paid |
 | T26 | Approval card in Tamil and Hindi | Figures and words match `amount_paise` in the frozen snapshot; text comes only from templates |
 | T27 | Clean invoice using a registered legal name or alias (e.g. "Kaveri Fasteners Pvt. Ltd.") | ELIGIBLE; not a name mismatch |
 | T28 | Judges' mixed batch with planted problems | Scorecard counts match per-invoice findings; every clean invoice stays ELIGIBLE |
