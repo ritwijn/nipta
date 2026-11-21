@@ -107,3 +107,11 @@ def test_voice_bad_stt_response_is_handled(client, resp):
     r = client.post("/api/agent/voice", data={"batch_id": client.batch_id},
                     files={"audio": ("q.webm", io.BytesIO(b"abc"), "audio/webm")})
     assert r.status_code == 502 and r.json()["error"] == "STT_ERROR"
+
+
+def test_bank_change_requests_need_a_session(conn):
+    from fastapi.testclient import TestClient
+
+    from backend.app import app
+    with TestClient(app) as c:
+        assert c.get("/api/vendors/V-KAVERI-FASTENERS/bank-changes").status_code == 401
