@@ -333,9 +333,10 @@ def add_invoice(body: StructuredInvoiceRequest, operator: str = Depends(require_
             raise NiptaError("NOT_FOUND", "Batch not found", 404)
         if not batch_id:
             batch_id = pipeline.create_batch(conn, "UPLOAD", operator)
+        dup = pipeline.structured_duplicate_of(conn, body.extraction)  # same JSON resubmitted
         invoice_id = pipeline.add_structured_invoice(conn, batch_id, body.extraction, operator)
     pipeline.run_checks(conn, invoice_id)
-    return invoice_summary(conn, _invoice_or_404(conn, invoice_id))
+    return {**invoice_summary(conn, _invoice_or_404(conn, invoice_id)), "duplicate_upload": dup is not None}
 
 
 @app.post("/api/invoices/{invoice_id}/checks")

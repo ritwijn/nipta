@@ -1,6 +1,8 @@
 """Curveball regressions from the rules review: parsing, arithmetic, beneficiary, vendor and duplicate edge cases."""
 from __future__ import annotations
 
+import json
+
 from datetime import date
 
 from backend import db, pipeline
@@ -10,7 +12,7 @@ from backend.rules.arithmetic import check_arithmetic
 from backend.rules.model import normalize_extraction
 from backend.schemas import ExtractionRaw
 
-from .conftest import add_invoice, curveball, decision, findings
+from .conftest import CURVEBALLS, add_invoice, curveball, decision, findings
 
 
 def _arith(**fields) -> dict[str, dict]:
@@ -147,3 +149,9 @@ def test_identical_structured_json_is_flagged_as_duplicate_upload(conn):
     assert pipeline.structured_duplicate_of(conn, curveball("gst_correct")) == first
     assert add_invoice(conn, curveball("gst_correct")) == first
     assert db.row(conn, "SELECT COUNT(*) AS n FROM invoices WHERE invoice_number_raw='KF-260'")["n"] == 1
+
+
+def test_structured_resubmit_is_flagged_by_api(client):
+    body = {"extraction": json.loads((CURVEBALLS / "gst_correct.json").read_text())}
+    assert client.post("/api/invoices", json=body).json()["duplicate_upload"] is False
+    assert client.post("/api/invoices", json=body).json()["duplicate_upload"] is True
