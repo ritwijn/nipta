@@ -351,10 +351,10 @@ The UI activity panel renders these rows as plain steps: "Reading INV-C", "Reche
 | Use | Endpoint | Notes |
 |---|---|---|
 | Chat / tool routing | `POST https://api.sarvam.ai/v2/chat/completions` | header `api-subscription-key`; model `sarvam-105b` by default; `tools`, `response_format` supported |
-| Vision extraction | same endpoint with an image-capable model | the docs list image support for `gemma4`, `glm5.3-flash` and others; the image content-part format is not shown on the guide page, so the adapter's message shape must be confirmed at the event |
+| Vision extraction | `POST https://api.sarvam.ai/doc-ai/v1/job/extract`, then poll `/doc-ai/v1/job/{job_id}/status` and read `/doc-ai/v1/job/{job_id}/results` | Document AI extract job: multipart `file` + JSON `schema` + `language`; async; max 20 pages per PDF; `language` for Tamil/Hindi to be confirmed at the event |
 | Speech | `POST https://api.sarvam.ai/text-to-speech` | `text`, `language_code` (`ta-IN`, `hi-IN`, `en-IN`), `model` (`bulbul:v3` default), optional `speaker`; response `audios[0]` base64 WAV |
 
-PDFs are rendered to PNG page images with `pypdfium2` before vision extraction.
+The original PDF or image is sent as-is; no local page rendering is needed.
 
 ## 8. Data model
 
